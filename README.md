@@ -28,6 +28,7 @@ public List<Order> orders() { ... }
 - [Configuration reference](#configuration-reference)
 - [Security defaults](#security-defaults)
 - [Customising](#customising)
+- [Testing your service](#testing-your-service)
 - [Building](#building)
 - [Roadmap](#roadmap)
 
@@ -37,6 +38,7 @@ public List<Order> orders() { ... }
 | --- | --- |
 | `entra-security-core` | Framework-level pieces: JWT decoder and validators, user/service classification, authority mapping, Graph group lookup, token acquisition (secret, certificate, workload identity), outbound interceptors, problem-details handlers, `EntraPrincipal`. |
 | `entra-security-spring-boot-starter` | Auto-configuration (`AutoConfiguration.imports`), `entra.security.*` properties with validation, the default `SecurityFilterChain`, `@EnableEntraSecurity`, `EntraOutboundClients`. |
+| `entra-security-test` | Test support for consuming services: an in-process mock Entra authority (JWKS, token endpoint, Graph), signed test tokens, `@AutoConfigureEntraMockAuthority`, `@WithMockEntraUser` and `@WithMockEntraService`. |
 | `sample-api` | Example service with user and service endpoints, an outbound client and Kubernetes manifests (`sample-api/k8s`). |
 
 ## Quickstart
@@ -47,7 +49,7 @@ public List<Order> orders() { ... }
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-spring-boot-starter</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -439,6 +441,106 @@ names the property.
   `EntraJwtAuthenticationConverter`, the problem-details handlers): they are all
   `@ConditionalOnMissingBean`.
 
+## Testing your service
+
+Add the test module next to the starter:
+
+```xml
+<dependency>
+    <groupId>io.github.rmkr-dev</groupId>
+    <artifactId>entra-security-test</artifactId>
+    <version>0.2.0</version>
+    <scope>test</scope>
+</dependency>
+```
+
+It gives you two ways to test `@Secured` endpoints, and neither needs a real tenant or network access.
+
+### Real tokens against a mock authority
+
+`@AutoConfigureEntraMockAuthority` starts an in-process authority on a random loopback port (one per JVM, so
+Spring's context cache keeps working) and points `entra.security.authority-host`, `jwk-set-uri` and
+`graph.base-url` at it. Tokens are signed with its RSA key, so the full pipeline runs: signature, issuer,
+audience, tenant, expiry, role mapping and the Graph lookup on group overage.
+
+```java
+@SpringBootTest
+@AutoConfigureMockMvc
+@AutoConfigureEntraMockAuthority
+class OrderApiTest {
+
+    @Autowired MockMvc mvc;
+    @Autowired EntraTestTokens tokens;          // bound to your tenant-id and client-id
+    @Autowired EntraMockAuthority authority;
+
+    @Test
+    void readersCanList() throws Exception {
+        mvc.perform(get("/api/orders").with(bearer(tokens.user().groups(READERS_GROUP))))
+           .andExpect(status().isOk());
+    }
+
+    @Test
+    void peersCanSync() throws Exception {
+        mvc.perform(post("/internal/orders/sync").with(bearer(tokens.service().appRoles("Orders.Sync"))))
+           .andExpect(status().isOk());
+    }
+
+    @Test
+    void usersInManyGroupsAreResolvedThroughGraph() throws Exception {
+        authority.registerGroups(USER_OID, READERS_GROUP);
+        mvc.perform(get("/api/orders").with(bearer(tokens.user().objectId(USER_OID).groupOverage())))
+           .andExpect(status().isOk());
+    }
+
+    @Test
+    void expiredTokensAreRejected() throws Exception {
+        mvc.perform(get("/api/orders").with(bearer(tokens.user().groups(READERS_GROUP).expired())))
+           .andExpect(status().isUnauthorized());
+    }
+}
+```
+
+`bearer(...)` comes from `EntraMockMvc`; outside MockMvc use `tokens.user().bearer()` as the
+`Authorization` header value. The token builder covers what Entra emits:
+
+| Builder call | Token |
+| --- | --- |
+| `tokens.user()` | v2 delegated token, `scp=access_as_user`, default `oid` and client |
+| `tokens.service()` | v2 app-only token, `idtyp=app`, no `scp` |
+| `.groups(...)`, `.appRoles(...)`, `.scopes(...)` | `groups`, `roles`, `scp` |
+| `.objectId(...)`, `.appId(...)`, `.name(...)`, `.username(...)` | `oid`, `azp`/`appid`, `name`, `preferred_username`/`upn` |
+| `.groupOverage()` | no `groups`, `_claim_names`/`_claim_sources` pointing at Graph |
+| `.v1()` | `sts.windows.net` issuer, `appid`, `api://` audience, `ver=1.0` |
+| `.expired()`, `.expiresIn(...)`, `.notBefore(...)` | lifetime |
+| `.audience(...)`, `.issuer(...)`, `.tenantId(...)`, `.without(claim)` | negative tests |
+| `.signedWithUnknownKey()`, `.signedWithHmac()` | signatures that must be rejected |
+
+The authority also serves the token endpoint, so outbound clients and the Graph client get tokens without
+any extra stubbing. Use `EntraMockAuthority.start()` directly (and close it) when you are not in a Spring test.
+
+### No token at all
+
+For tests that only care about authorization, run the test as a user or a service:
+
+```java
+@Test
+@WithMockEntraUser(groups = READERS_GROUP)
+void readersCanList() throws Exception {
+    mvc.perform(get("/api/orders")).andExpect(status().isOk());
+}
+
+@Test
+@WithMockEntraService(appRoles = "Orders.Sync")
+void peersCanSync() throws Exception {
+    mvc.perform(post("/internal/orders/sync")).andExpect(status().isOk());
+}
+```
+
+When the starter is in the test context, the annotation values go through the same
+`EntraJwtAuthenticationConverter` as real requests, so your `group-role-mappings`, `app-role-mappings` and
+`client-role-mappings` are tested too. `roles = "ADMIN"` adds `ROLE_ADMIN` on top. `EntraPrincipal`
+injection, `@AuthenticationPrincipal` and `EntraPrincipals.current()` all work.
+
 ## Building
 
 ```bash
@@ -453,7 +555,6 @@ no Entra tenant is needed. CI runs on Java 17 and 21.
 See [CHANGELOG.md](CHANGELOG.md) for what is released. Planned next:
 
 - Reactive (WebFlux) resource-server support.
-- An `entra-security-test` module so consuming services can mint test tokens in their own tests.
 - Actuator health indicator (JWKS, Graph) and Micrometer metrics.
 - Publishing to Maven Central (sources, javadoc, signing) and a tagged release.
 - On-behalf-of (OBO) flow for calling downstream APIs as the user.

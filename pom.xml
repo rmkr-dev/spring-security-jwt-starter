@@ -6,7 +6,7 @@
 
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-parent</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <packaging>pom</packaging>
 
     <name>Entra Security Parent</name>
@@ -38,6 +38,7 @@
     <modules>
         <module>entra-security-core</module>
         <module>entra-security-spring-boot-starter</module>
+        <module>entra-security-test</module>
         <module>sample-api</module>
     </modules>
 
@@ -80,6 +81,11 @@
             <dependency>
                 <groupId>io.github.rmkr-dev</groupId>
                 <artifactId>entra-security-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.rmkr-dev</groupId>
+                <artifactId>entra-security-test</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

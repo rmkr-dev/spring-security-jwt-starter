@@ -1,0 +1,18 @@
+entra:
+  security:
+    tenant-id: 11111111-1111-1111-1111-111111111111
+    client-id: 22222222-2222-2222-2222-222222222222
+    public-paths:
+      - /public/**
+    group-role-mappings:
+      aaaaaaaa-0000-0000-0000-000000000001: [ORDERS_READ]
+      "[Overage Readers]": [ORDERS_READ]
+    app-role-mappings:
+      "[Orders.Sync]": [SYNC]
+    client-role-mappings:
+      c0c0c0c0-0000-4000-8000-000000000003: [REPORTS]
+    graph:
+      overage-enabled: true
+    credential:
+      type: client-secret
+      client-secret: test-secret

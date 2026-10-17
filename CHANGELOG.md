@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
+### Added
+
+- `entra-security-test` module for consuming services (use with `<scope>test</scope>`):
+  - `EntraMockAuthority`: an in-process authority on a random loopback port serving the JWKS, a discovery
+    document, client-credentials tokens and Microsoft Graph `transitiveMemberOf` for any tenant, with request
+    counters for assertions.
+  - `EntraTestTokens`: signed v2 and v1 user and service tokens with a fluent builder (groups, app roles,
+    scopes, group overage, expiry, wrong audience, issuer or tenant, unknown key, HS256).
+  - `@AutoConfigureEntraMockAuthority`: points a Spring test context at a shared mock authority and registers
+    `EntraTestTokens` bound to the context's tenant and client id.
+  - `@WithMockEntraUser` and `@WithMockEntraService`: run a test as a user or service with no token, through
+    the real role mapping when the starter is present.
+  - `EntraMockMvc.bearer(...)` request post-processor.
+- README section "Testing your service".
+
+### Changed
+
+- `sample-api` tests use `entra-security-test` instead of hand-rolled WireMock stubs.
+
 ## [0.1.0] - 2026-10-17
 
 ### Added
@@ -35,5 +56,6 @@ All notable changes to this project are documented here. The format follows
 - Tests against locally generated RSA keys and WireMock (JWKS, token endpoint, Graph); GitHub Actions on
   Java 17 and 21.
 
-[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/commits/main
+[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/commits/main
+[0.2.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/pull/2
+[0.1.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/pull/1
