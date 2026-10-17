@@ -1,0 +1,2 @@
+io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityAutoConfiguration
+io.github.rmkrdev.entra.security.autoconfigure.EntraOutboundAutoConfiguration

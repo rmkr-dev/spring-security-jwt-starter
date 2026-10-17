@@ -1,0 +1,34 @@
+# Non-secret Entra configuration for sample-api, mounted as /config/application.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample-api-entra
+data:
+  application.yaml: |
+    entra:
+      security:
+        tenant-id: "00000000-0000-0000-0000-000000000000"   # Directory (tenant) ID
+        client-id: "11111111-1111-1111-1111-111111111111"   # This API's application (client) ID
+        # audiences default to api://<client-id> and <client-id>
+        clock-skew: 60s
+        public-paths:
+          - /actuator/health/**
+        group-role-mappings:
+          "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": [ORDERS_READ]                # Orders Readers group
+          "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb": [ORDERS_READ, ORDERS_WRITE]  # Orders Admins group
+        app-role-mappings:
+          "[Orders.Sync]": [ORDERS_SYNC]          # app role granted to peer services
+        client-role-mappings:
+          "cccccccc-cccc-cccc-cccc-cccccccccccc": [ORDERS_SYNC]  # batch-job app (azp/appid)
+        service:
+          require-known-client: false
+        graph:
+          overage-enabled: true                   # users in >200 groups
+          cache-ttl: 10m
+        credential:
+          type: workload-identity                 # AZURE_* env injected by the AKS webhook
+        outbound:
+          clients:
+            inventory-api:
+              scope: "api://dddddddd-dddd-dddd-dddd-dddddddddddd/.default"
+              base-url: "http://inventory-api.inventory.svc.cluster.local"

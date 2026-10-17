@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: sample-api
+  config:
+    # Kubernetes: mount the ConfigMap at /config and Secret keys as files under /etc/entra (see k8s/).
+    import:
+      - optional:file:/config/application.yaml
+      - optional:configtree:/etc/entra/
+
+# Required values can also come from env vars: ENTRA_SECURITY_TENANTID, ENTRA_SECURITY_CLIENTID.
+entra:
+  security:
+    public-paths:
+      - /actuator/health/**
+      - /actuator/info
+    # group-role-mappings:
+    #   "<group-object-id>": [ORDERS_READ]
+    # app-role-mappings:
+    #   "[Orders.Sync]": [ORDERS_SYNC]
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true

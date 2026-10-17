@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sample-api
+  annotations:
+    # Client ID of the user-assigned managed identity or app registration with a federated credential
+    # for system:serviceaccount:<namespace>:sample-api
+    azure.workload.identity/client-id: "11111111-1111-1111-1111-111111111111"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sample-api
+  template:
+    metadata:
+      labels:
+        app: sample-api
+        azure.workload.identity/use: "true"   # webhook injects AZURE_* env and the token file
+    spec:
+      serviceAccountName: sample-api
+      containers:
+        - name: sample-api
+          image: ghcr.io/rmkr-dev/sample-api:0.1.0
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+          volumeMounts:
+            - name: entra-config
+              mountPath: /config
+              readOnly: true
+            # - name: entra-secret        # only for client-secret credentials
+            #   mountPath: /etc/entra
+            #   readOnly: true
+      volumes:
+        - name: entra-config
+          configMap:
+            name: sample-api-entra
+        # - name: entra-secret
+        #   secret:
+        #     secretName: sample-api-entra

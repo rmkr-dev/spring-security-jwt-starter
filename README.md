@@ -1,10 +1,464 @@
 # spring-security-jwt-starter
 
-A reusable Spring Boot 3.x security starter for Microsoft Entra ID (Azure AD).
-It validates Entra access tokens for user and service (app-only) callers and maps
-groups and app roles to Spring Security roles, so services only need `@Secured`.
+[![CI](https://github.com/rmkr-dev/spring-security-jwt-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/rmkr-dev/spring-security-jwt-starter/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Work in progress. See the pull requests for the first release.
+A reusable Spring Boot 3.x (Java 17 and 21) security starter for **Microsoft Entra ID** (Azure AD).
+It works with app registrations and enterprise applications, for **users** (delegated tokens) and
+**services** (app-only, client-credentials tokens).
+
+A service adds one dependency, supplies configuration (ConfigMap, env or properties), and writes:
+
+```java
+@GetMapping("/api/orders")
+@Secured("ROLE_ORDERS_READ")
+public List<Order> orders() { ... }
+```
+
+## Contents
+
+- [Modules](#modules)
+- [Quickstart](#quickstart)
+- [How it works](#how-it-works)
+- [User flow](#user-flow)
+- [Service flow](#service-flow)
+- [Calling other services](#calling-other-services)
+- [Entra ID setup](#entra-id-setup)
+- [Kubernetes](#kubernetes)
+- [Configuration reference](#configuration-reference)
+- [Security defaults](#security-defaults)
+- [Customising](#customising)
+- [Building](#building)
+- [Roadmap](#roadmap)
+
+## Modules
+
+| Module | Purpose |
+| --- | --- |
+| `entra-security-core` | Framework-level pieces: JWT decoder and validators, user/service classification, authority mapping, Graph group lookup, token acquisition (secret, certificate, workload identity), outbound interceptors, problem-details handlers, `EntraPrincipal`. |
+| `entra-security-spring-boot-starter` | Auto-configuration (`AutoConfiguration.imports`), `entra.security.*` properties with validation, the default `SecurityFilterChain`, `@EnableEntraSecurity`, `EntraOutboundClients`. |
+| `sample-api` | Example service with user and service endpoints, an outbound client and Kubernetes manifests (`sample-api/k8s`). |
+
+## Quickstart
+
+### 1. Add the dependency
+
+```xml
+<dependency>
+    <groupId>io.github.rmkr-dev</groupId>
+    <artifactId>entra-security-spring-boot-starter</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+Your service also needs `spring-boot-starter-web`. Until the artifacts are published to Maven Central,
+build them locally with `mvn install`.
+
+### 2. Configure
+
+Minimal `application.yaml`:
+
+```yaml
+entra:
+  security:
+    tenant-id: 00000000-0000-0000-0000-000000000000   # Directory (tenant) ID
+    client-id: 11111111-1111-1111-1111-111111111111   # This API's Application (client) ID
+    group-role-mappings:
+      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": [ORDERS_READ]
+```
+
+or just environment variables for the required values:
+
+```bash
+ENTRA_SECURITY_TENANTID=00000000-0000-0000-0000-000000000000
+ENTRA_SECURITY_CLIENTID=11111111-1111-1111-1111-111111111111
+```
+
+### 3. Secure endpoints
+
+```java
+@SpringBootApplication
+@EnableEntraSecurity          // optional, see below
+public class OrdersApplication { ... }
+
+@RestController
+class OrderController {
+
+    @GetMapping("/api/orders")
+    @Secured("ROLE_ORDERS_READ")
+    List<Order> list() { ... }
+
+    @PostMapping("/api/orders")
+    @PreAuthorize("hasRole('ORDERS_WRITE')")
+    Order create(@RequestBody Order order, EntraPrincipal caller) { ... }
+}
+```
+
+That's it: every path except the public ones needs a valid Entra token, and roles come from your
+mappings.
+
+**`@EnableEntraSecurity`** is optional; the auto-configuration already secures the app and enables
+method security. The annotation makes it explicit and also:
+
+- enables `@Secured`/`@PreAuthorize`/`@RolesAllowed` even if `entra.security.method-security.enabled=false`;
+- preloads the security context at startup: the tenant JWKS is fetched eagerly and the effective
+  configuration is logged;
+- with `@EnableEntraSecurity(failOnJwksError = true)`, startup fails if the signing keys cannot be loaded.
+
+### The caller: `EntraPrincipal`
+
+```java
+@GetMapping("/api/me")
+EntraPrincipal me(EntraPrincipal principal) { return principal; }   // or @AuthenticationPrincipal
+```
+
+| Field | Meaning |
+| --- | --- |
+| `type` | `USER` or `SERVICE` |
+| `objectId` | `oid`: user or service principal object id (`getName()`) |
+| `appId` | calling client: `azp` (v2) or `appid` (v1) |
+| `tenantId`, `subject`, `tokenVersion` | `tid`, `sub`, `ver` |
+| `roles` | granted authorities, such as `ROLE_ORDERS_READ` |
+| `appRoles`, `groups`, `scopes` | raw `roles`, groups (from the token or Graph), `scp` |
+| `displayName`, `username` | `name`, `preferred_username`/`upn` (users) |
+
+Helpers: `isUser()`, `isService()`, `hasRole("X")`, `hasAppRole("X")`, `isMemberOf(groupId)`.
+Outside controllers, use `EntraPrincipals.current()`.
+
+## How it works
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client (SPA / user app)
+    participant P as Peer service (pod)
+    participant E as Microsoft Entra ID
+    participant A as Your API (starter)
+    participant G as Microsoft Graph
+
+    Note over A,E: Startup
+    A->>E: GET /{tenant}/discovery/v2.0/keys (JWKS, cached)
+
+    Note over C,A: User flow (delegated token)
+    C->>E: Sign in, request api://{client-id}/access_as_user
+    E-->>C: Access token (scp, groups or overage marker, roles)
+    C->>A: GET /api/orders, Authorization: Bearer token
+    A->>A: Verify RS256 signature, iss (v1/v2), aud, tid, exp/nbf ± skew
+    A->>A: Classify USER (idtyp=user or scp present)
+    opt groups overage (_claim_names / hasgroups)
+        A->>E: client credentials (secret / certificate / workload identity)
+        E-->>A: Graph token (cached)
+        A->>G: GET /users/{oid}/transitiveMemberOf
+        G-->>A: Groups (cached per user)
+    end
+    A->>A: groups → roles, roles claim → roles, scp → SCOPE_x
+    A->>A: @Secured("ROLE_ORDERS_READ")
+    A-->>C: 200, or 401/403 problem+json
+
+    Note over P,A: Service flow (app-only token)
+    P->>E: client credentials for api://{client-id}/.default
+    E-->>P: Access token (roles, azp, idtyp=app, no scp)
+    P->>A: POST /internal/orders/sync, Bearer token
+    A->>A: Validate, classify SERVICE, app roles + azp allow-list → roles
+    A-->>P: 200, or 403
+```
+
+## User flow
+
+1. The token is validated (see [Security defaults](#security-defaults)).
+2. It is a **user** token when `idtyp=user`, or when `idtyp` is absent and `scp` is present.
+3. Roles are computed from:
+   - **groups**: each value of the `groups` claim (object ids, or names when Entra emits
+     `sAMAccountName`/cloud display names) is looked up in `group-role-mappings` (case-insensitive);
+   - **app roles**: the `roles` claim, which holds app roles assigned to the user or their groups on
+     the enterprise application, mapped through `app-role-mappings`, or used directly as
+     `ROLE_<value>` (`user.include-roles-claim`, default `true`);
+   - **scopes**: `scp` values become `SCOPE_<scope>` when `user.include-scopes=true`;
+   - `user.default-roles` for every user.
+4. **Group overage**: when a user is in more groups than fit in the token (200 for JWTs), Entra
+   omits `groups` and adds `_claim_names: {"groups": ...}` (or `hasgroups: true`). With
+   `graph.overage-enabled=true` the starter reads the user's transitive groups from Microsoft Graph
+   with an app-only token, caches them per user (`graph.cache-ttl`), and maps ids **and** display
+   names. If Graph fails, the request continues without group roles (fail closed) and a warning is
+   logged.
+
+## Service flow
+
+1. It is a **service** token when `idtyp=app`, or when `idtyp` is absent and there is no `scp`.
+2. Roles are computed from:
+   - the `roles` claim (application permissions granted to the caller): `app-role-mappings`, or
+     `ROLE_<value>` when `service.map-unmapped-app-roles=true` (default);
+   - the caller's client id (`azp` for v2, `appid` for v1): `client-role-mappings`;
+   - `service.default-roles`.
+3. `service.require-known-client=true` rejects (401) app-only tokens whose client id is not a key
+   of `client-role-mappings`.
+
+`client-role-mappings` apply to app-only tokens only, so a user token issued to the same client id
+cannot pick them up.
+
+## Calling other services
+
+Configure outbound clients and use the interceptor:
+
+```yaml
+entra:
+  security:
+    credential:
+      type: workload-identity        # or client-secret / certificate
+    outbound:
+      clients:
+        inventory-api:
+          scope: api://dddddddd-dddd-dddd-dddd-dddddddddddd/.default
+          base-url: http://inventory-api.inventory.svc.cluster.local
+```
+
+```java
+@Component
+class InventoryClient {
+    private final RestClient rest;
+
+    InventoryClient(RestClient.Builder builder, EntraOutboundClients outbound) {
+        this.rest = builder.baseUrl(outbound.baseUrl("inventory-api"))
+                .requestInterceptor(outbound.interceptor("inventory-api"))
+                .build();
+    }
+}
+
+// WebClient
+WebClient.builder().filter(EntraWebClientSupport.filter(outbound, "inventory-api")).build();
+```
+
+Tokens are cached per scope and renewed `cache.token-refresh-skew` before expiry.
+
+| Credential type | Settings | Notes |
+| --- | --- | --- |
+| `client-secret` | `client-secret` | Supply it from a Kubernetes Secret. |
+| `certificate` | `certificate-path`, `certificate-password` | PEM (certificate + unencrypted PKCS#8 key) or `.p12`/`.pfx`. Sends an RS256 client assertion with `x5t`. |
+| `workload-identity` | `federated-token-file` (optional) | AKS Workload Identity. Uses `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_AUTHORITY_HOST` from the webhook unless set explicitly. The file is re-read on each token request. |
+
+Each outbound client can override `credential.*`; otherwise it uses `entra.security.credential`.
+
+## Entra ID setup
+
+### 1. App registration for the API
+
+1. **Entra admin center → App registrations → New registration**, single tenant. Note the
+   **Application (client) ID** and **Directory (tenant) ID**.
+2. **Expose an API**: set the Application ID URI to `api://<client-id>`, and add a scope such as
+   `access_as_user` for delegated (user) access.
+3. *(Optional, recommended)* **Manifest**: set `"requestedAccessTokenVersion": 2`
+   (`accessTokenAcceptedVersion` in older manifests). Both v1 and v2 tokens are accepted either way.
+
+### 2. App roles
+
+**App roles → Create app role** for each permission:
+
+| Display name | Value | Allowed member types | Used by |
+| --- | --- | --- | --- |
+| Orders writer | `ORDERS_WRITE` | Users/Groups | users, through the enterprise app |
+| Orders sync | `Orders.Sync` | Applications | peer services (client credentials) |
+
+Map values with `app-role-mappings` (`"[Orders.Sync]": [ORDERS_SYNC]`) or use them directly
+(`@Secured("ROLE_ORDERS_WRITE")`).
+
+### 3. Groups claim
+
+**Token configuration → Add groups claim**: choose *Security groups* (or *Groups assigned to the
+application*, which keeps tokens small and avoids overage). For the **Access** token, keep *Group ID*,
+or emit names (`sAMAccountName` for synced groups, or *cloud-only group display names*) and map names
+instead of ids.
+
+For overage, grant the API's app registration the **Microsoft Graph application permission
+`GroupMember.Read.All`** (admin consent) and configure `entra.security.credential`.
+
+### 4. Enterprise application assignment
+
+**Enterprise applications → your API → Users and groups → Add user/group** assigns app roles to users
+or groups; they appear in the user's `roles` claim. Turn on **Properties → Assignment required** to
+let only assigned users get tokens for the API.
+
+### 5. Service callers
+
+For each peer service (its own app registration or a managed identity):
+
+1. On the **API** registration, the peer is granted an app role: in the peer's registration, **API
+   permissions → Add a permission → My APIs → your API → Application permissions → `Orders.Sync`**,
+   then **Grant admin consent**. For managed identities, assign the app role with Graph or the CLI
+   (`appRoleAssignedTo`).
+2. The peer requests `api://<api-client-id>/.default` with client credentials.
+3. Optionally list the peer's client id in `client-role-mappings`, and set
+   `service.require-known-client=true` to allow only listed clients.
+
+### 6. Workload identity (AKS)
+
+1. Enable OIDC issuer and workload identity on the cluster.
+2. Create a federated credential on the app registration (or user-assigned managed identity) for
+   `system:serviceaccount:<namespace>:<service-account>`.
+3. Annotate the service account with `azure.workload.identity/client-id` and label pods with
+   `azure.workload.identity/use: "true"` (see `sample-api/k8s/deployment.yaml`).
+
+## Kubernetes
+
+Non-secret configuration in a ConfigMap mounted as a file, secrets as a configtree:
+
+```yaml
+# ConfigMap: mounted at /config, imported with spring.config.import=optional:file:/config/application.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-api-entra
+data:
+  application.yaml: |
+    entra:
+      security:
+        tenant-id: "00000000-0000-0000-0000-000000000000"
+        client-id: "11111111-1111-1111-1111-111111111111"
+        group-role-mappings:
+          "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": [ORDERS_READ]
+          "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb": [ORDERS_READ, ORDERS_WRITE]
+        app-role-mappings:
+          "[Orders.Sync]": [ORDERS_SYNC]
+        graph:
+          overage-enabled: true
+        credential:
+          type: client-secret
+---
+# Secret: mounted at /etc/entra, imported with spring.config.import=optional:configtree:/etc/entra/
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orders-api-entra
+type: Opaque
+stringData:
+  entra.security.credential.client-secret: "<client-secret>"
+```
+
+```yaml
+# application.yaml in the service image
+spring:
+  config:
+    import:
+      - optional:file:/config/application.yaml
+      - optional:configtree:/etc/entra/
+```
+
+Full manifests: [`sample-api/k8s`](sample-api/k8s).
+
+**Environment variables** work for scalar values: `ENTRA_SECURITY_TENANTID`, `ENTRA_SECURITY_CLIENTID`,
+`ENTRA_SECURITY_CLOCKSKEW=90s`, `ENTRA_SECURITY_GRAPH_OVERAGEENABLED=true`,
+`ENTRA_SECURITY_CREDENTIAL_CLIENTSECRET` (from `secretKeyRef`). Map keys such as group GUIDs cannot be
+written as env var names, so put mappings in the ConfigMap file or in `SPRING_APPLICATION_JSON`:
+
+```bash
+SPRING_APPLICATION_JSON='{"entra":{"security":{"group-role-mappings":{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":["ORDERS_READ"]}}}}'
+```
+
+> Map keys with characters other than letters, digits and `-` (such as `Orders.Sync` or group names
+> with spaces) must be wrapped in brackets in YAML: `"[Orders.Sync]"`, `"[Order Admins]"`.
+
+## Configuration reference
+
+All properties are under `entra.security`. Invalid configuration stops startup with a message that
+names the property.
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Turn the starter off. |
+| `tenant-id` | **required** | Directory (tenant) ID. A GUID unless `issuers` is set; `common`/`organizations` are rejected. |
+| `client-id` | **required** | Application (client) ID of the API. |
+| `authority-host` | `https://login.microsoftonline.com` | Authority host (change for sovereign clouds). |
+| `jwk-set-uri` | `{authority-host}/{tenant-id}/discovery/v2.0/keys` | JWKS endpoint. |
+| `audiences` | `api://{client-id}`, `{client-id}` | Accepted `aud` values. |
+| `issuers` | `{authority-host}/{tenant-id}/v2.0`, `https://sts.windows.net/{tenant-id}/` | Accepted `iss` values (exact match). |
+| `require-tenant-match` | `true` | Require `tid` = `tenant-id`. |
+| `clock-skew` | `60s` | Tolerance for `exp`/`nbf`. |
+| `public-paths` | `/actuator/health`, `/actuator/health/**`, `/actuator/info` | Paths that need no token. |
+| `group-role-mappings` | — | Group id or name → roles. |
+| `app-role-mappings` | — | App role value (`roles` claim) → roles. |
+| `client-role-mappings` | — | Client id (`azp`/`appid`) → roles, for app-only tokens. |
+| `user.include-roles-claim` | `true` | Map the `roles` claim of user tokens. |
+| `user.include-scopes` | `false` | Grant `SCOPE_<scp>` authorities. |
+| `user.default-roles` | — | Roles for every user. |
+| `service.map-unmapped-app-roles` | `true` | Unmapped app roles become `ROLE_<value>`. |
+| `service.require-known-client` | `false` | Reject app-only tokens from clients not in `client-role-mappings`. |
+| `service.default-roles` | — | Roles for every service caller. |
+| `graph.overage-enabled` | `false` | Resolve overage groups through Graph (needs `credential`). |
+| `graph.base-url` | `https://graph.microsoft.com` | Graph endpoint. |
+| `graph.scope` | `https://graph.microsoft.com/.default` | Graph token scope. |
+| `graph.cache-ttl` | `10m` | Group cache lifetime per user. |
+| `graph.cache-max-entries` | `10000` | Group cache size. |
+| `graph.max-pages` | `20` | Max Graph pages per lookup. |
+| `credential.type` | `none` | `none`, `client-secret`, `certificate`, `workload-identity`. |
+| `credential.tenant-id` / `client-id` | API values (or `AZURE_*` for workload identity) | Identity requesting tokens. |
+| `credential.client-secret` | — | Client secret. |
+| `credential.certificate-path` / `certificate-password` | — | PEM or PKCS#12 certificate. |
+| `credential.federated-token-file` | `$AZURE_FEDERATED_TOKEN_FILE` | Workload identity token file. |
+| `outbound.clients.<name>.scope` | **required** | Scope for the peer, e.g. `api://<peer>/.default`. |
+| `outbound.clients.<name>.base-url` | — | Peer base URL. |
+| `outbound.clients.<name>.credential.*` | `entra.security.credential` | Per-client credential. |
+| `cache.jwks-ttl` | `15m` | JWKS cache lifetime (unknown `kid`s trigger a rate-limited refresh). |
+| `cache.token-refresh-skew` | `5m` | Renew acquired tokens this long before expiry. |
+| `http.connect-timeout` / `read-timeout` | `5s` / `10s` | Timeouts for JWKS, token and Graph calls. |
+| `method-security.enabled` | `true` | Enable `@Secured`/`@PreAuthorize`/`@RolesAllowed`. |
+| `logging.log-claims` | `false` | Log a privacy-safe claim summary at DEBUG. |
+
+## Security defaults
+
+- **Stateless** sessions, **CSRF off**, no form login, HTTP Basic, logout or request cache.
+- **CORS** follows your `CorsConfigurationSource` bean or Spring MVC CORS configuration (nothing is
+  allowed cross-origin by default).
+- Only **RS256** signatures, keys from the tenant JWKS; `none`, HS* and unknown keys are rejected.
+- **Issuer** exact match (v1 and v2), **audience**, **tenant** (`tid`), `exp` required, `exp`/`nbf`
+  with configurable **clock skew**.
+- **401** and **403** responses are `application/problem+json` with a `WWW-Authenticate: Bearer` header:
+
+  ```json
+  {"type":"about:blank","title":"Forbidden","status":403,
+   "detail":"The caller does not have a role required to access this resource",
+   "instance":"/api/orders","error":"insufficient_scope"}
+  ```
+
+- **Safe logging**: with `logging.log-claims=true` and DEBUG on `io.github.rmkrdev.entra.security`,
+  one line per request with type, truncated oid, appid, tid, issuer, roles and counts. Tokens, names
+  and e-mail addresses are never logged.
+
+## Customising
+
+- Define your own `SecurityFilterChain` and the default one backs off. Reuse the Entra setup with
+  `EntraHttpSecurity`:
+
+  ```java
+  @Bean
+  SecurityFilterChain api(HttpSecurity http, EntraHttpSecurity entra) throws Exception {
+      http.securityMatcher("/api/**");
+      return entra.configure(http).build();
+  }
+  ```
+
+- Replace any bean (`JwtDecoder`, `EntraAuthorityMapper`, `GroupMembershipResolver`,
+  `EntraJwtAuthenticationConverter`, the problem-details handlers): they are all
+  `@ConditionalOnMissingBean`.
+
+## Building
+
+```bash
+mvn -B verify
+```
+
+Tests use locally generated RSA keys and WireMock for the JWKS, token endpoint and Microsoft Graph;
+no Entra tenant is needed. CI runs on Java 17 and 21.
+
+## Roadmap
+
+See [CHANGELOG.md](CHANGELOG.md) for what is released. Planned next:
+
+- Reactive (WebFlux) resource-server support.
+- An `entra-security-test` module so consuming services can mint test tokens in their own tests.
+- Actuator health indicator (JWKS, Graph) and Micrometer metrics.
+- Publishing to Maven Central (sources, javadoc, signing) and a tagged release.
+- On-behalf-of (OBO) flow for calling downstream APIs as the user.
+- Optional compact env-var syntax for role mappings.
+- Encrypted PEM keys and Key Vault-backed certificates.
 
 ## License
 
