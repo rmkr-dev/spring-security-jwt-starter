@@ -1,82 +1,80 @@
 package io.github.rmkrdev.entra.sample;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.get;
-import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
-import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
+import static io.github.rmkrdev.entra.security.test.EntraMockMvc.bearer;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
-import com.github.tomakehurst.wiremock.WireMockServer;
+import io.github.rmkrdev.entra.security.test.AutoConfigureEntraMockAuthority;
+import io.github.rmkrdev.entra.security.test.EntraTestTokens;
+import io.github.rmkrdev.entra.security.test.WithMockEntraService;
+import io.github.rmkrdev.entra.security.test.WithMockEntraUser;
 
-import io.github.rmkrdev.entra.security.core.test.TestTokens;
-
+/**
+ * How a consuming service tests its endpoints with {@code entra-security-test}: real signed tokens against an
+ * in-process mock authority, or {@code @WithMockEntraUser}/{@code @WithMockEntraService} with no token at all.
+ */
 @SpringBootTest(properties = {
-        "entra.security.tenant-id=" + TestTokens.TENANT_ID,
-        "entra.security.client-id=" + TestTokens.CLIENT_ID,
+        "entra.security.tenant-id=11111111-1111-1111-1111-111111111111",
+        "entra.security.client-id=22222222-2222-2222-2222-222222222222",
         "entra.security.group-role-mappings.aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa=ORDERS_READ",
         "entra.security.app-role-mappings[Orders.Sync]=ORDERS_SYNC" })
 @AutoConfigureMockMvc
+@AutoConfigureEntraMockAuthority
 class SampleApiApplicationTest {
 
-    static final WireMockServer ENTRA = new WireMockServer(options().dynamicPort());
-    static final TestTokens TOKENS;
-
-    static {
-        ENTRA.start();
-        TOKENS = new TestTokens(ENTRA.baseUrl());
-        ENTRA.stubFor(get("/" + TestTokens.TENANT_ID + "/discovery/v2.0/keys").willReturn(okJson(TOKENS.jwksJson())));
-    }
+    static final String READERS = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
     @Autowired
     MockMvc mvc;
 
-    @DynamicPropertySource
-    static void entra(DynamicPropertyRegistry registry) {
-        registry.add("entra.security.authority-host", ENTRA::baseUrl);
-    }
-
-    @AfterAll
-    static void stop() {
-        ENTRA.stop();
-    }
+    @Autowired
+    EntraTestTokens tokens;
 
     @Test
     void healthIsPublic() throws Exception {
-        mvc.perform(MockMvcRequestBuilders.get("/actuator/health")).andExpect(status().isOk());
+        mvc.perform(get("/actuator/health")).andExpect(status().isOk());
     }
 
     @Test
     void ordersRequireGroupRole() throws Exception {
-        mvc.perform(MockMvcRequestBuilders.get("/api/orders")).andExpect(status().isUnauthorized());
-        mvc.perform(MockMvcRequestBuilders.get("/api/orders")
-                .header("Authorization", "Bearer " + TOKENS.user().groups("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").build()))
+        mvc.perform(get("/api/orders")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/orders").with(bearer(tokens.user().groups(READERS))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].item").value("keyboard"));
-        mvc.perform(MockMvcRequestBuilders.get("/api/orders")
-                .header("Authorization", "Bearer " + TOKENS.user().build()))
+        mvc.perform(get("/api/orders").with(bearer(tokens.user())))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void peerServiceCanSync() throws Exception {
-        mvc.perform(post("/internal/orders/sync")
-                .header("Authorization", "Bearer " + TOKENS.service().roles("Orders.Sync").build()))
+        mvc.perform(post("/internal/orders/sync").with(bearer(tokens.service().appRoles("Orders.Sync"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.callerAppId").value(TestTokens.PEER_APP_ID));
+                .andExpect(jsonPath("$.callerAppId").value(EntraTestTokens.SERVICE_APP_ID));
         mvc.perform(post("/internal/orders/sync").contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", "Bearer " + TOKENS.user().groups("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").build()))
+                .with(bearer(tokens.user().groups(READERS))))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockEntraUser(groups = READERS)
+    void annotationRunsAsAMappedUser() throws Exception {
+        mvc.perform(get("/api/orders")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockEntraService(appRoles = "Orders.Sync")
+    void annotationRunsAsAPeerService() throws Exception {
+        mvc.perform(post("/internal/orders/sync"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.callerAppId").value(EntraTestTokens.SERVICE_APP_ID));
     }
 }

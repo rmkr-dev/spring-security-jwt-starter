@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.rmkr-dev</groupId>
         <artifactId>entra-security-parent</artifactId>
-        <version>0.1.0</version>
+        <version>0.2.0</version>
     </parent>
 
     <artifactId>sample-api</artifactId>
@@ -34,18 +34,12 @@
 
         <dependency>
             <groupId>io.github.rmkr-dev</groupId>
-            <artifactId>entra-security-core</artifactId>
-            <type>test-jar</type>
+            <artifactId>entra-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.wiremock</groupId>
-            <artifactId>wiremock-standalone</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
