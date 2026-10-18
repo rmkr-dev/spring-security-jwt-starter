@@ -5,7 +5,7 @@
 
 A reusable Spring Boot 3.x (Java 17 and 21) security starter for **Microsoft Entra ID** (Azure AD).
 It works with app registrations and enterprise applications, for **users** (delegated tokens) and
-**services** (app-only, client-credentials tokens).
+**services** (app-only, client-credentials tokens), on Spring MVC and on **WebFlux**.
 
 A service adds one dependency, supplies configuration (ConfigMap, env or properties), and writes:
 
@@ -23,6 +23,7 @@ public List<Order> orders() { ... }
 - [User flow](#user-flow)
 - [Service flow](#service-flow)
 - [Calling other services](#calling-other-services)
+- [Reactive (WebFlux)](#reactive-webflux)
 - [Entra ID setup](#entra-id-setup)
 - [Kubernetes](#kubernetes)
 - [Configuration reference](#configuration-reference)
@@ -38,9 +39,10 @@ public List<Order> orders() { ... }
 | Module | Purpose |
 | --- | --- |
 | `entra-security-core` | Framework-level pieces: JWT decoder and validators, user/service classification, authority mapping, Graph group lookup, token acquisition (secret, certificate, workload identity), outbound interceptors, problem-details handlers, `EntraPrincipal`. |
-| `entra-security-spring-boot-starter` | Auto-configuration (`AutoConfiguration.imports`), `entra.security.*` properties with validation, the default `SecurityFilterChain`, `@EnableEntraSecurity`, `EntraOutboundClients`, optional Actuator health and Micrometer metrics. |
+| `entra-security-spring-boot-starter` | Auto-configuration (`AutoConfiguration.imports`), `entra.security.*` properties with validation, the default `SecurityFilterChain` (servlet) or `SecurityWebFilterChain` (WebFlux), `@EnableEntraSecurity`, `EntraOutboundClients`, optional Actuator health and Micrometer metrics. |
 | `entra-security-test` | Test support for consuming services: an in-process mock Entra authority (JWKS, token endpoint, Graph), signed test tokens, `@AutoConfigureEntraMockAuthority`, `@WithMockEntraUser` and `@WithMockEntraService`. |
 | `sample-api` | Example service with user and service endpoints, an outbound client and Kubernetes manifests (`sample-api/k8s`). |
+| `sample-reactive-api` | The same service on WebFlux (no servlet API on the classpath), tested with `WebTestClient`. |
 
 ## Quickstart
 
@@ -50,12 +52,13 @@ public List<Order> orders() { ... }
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-spring-boot-starter</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
-Your service also needs `spring-boot-starter-web`. Until the artifacts are published to Maven Central,
-build them locally with `mvn install`.
+Your service also needs `spring-boot-starter-web`, or `spring-boot-starter-webflux` for a reactive service
+(see [Reactive (WebFlux)](#reactive-webflux)). Until the artifacts are published to Maven Central, build
+them locally with `mvn install`.
 
 ### 2. Configure
 
@@ -103,7 +106,8 @@ mappings.
 **`@EnableEntraSecurity`** is optional; the auto-configuration already secures the app and enables
 method security. The annotation makes it explicit and also:
 
-- enables `@Secured`/`@PreAuthorize`/`@RolesAllowed` even if `entra.security.method-security.enabled=false`;
+- enables `@Secured`/`@PreAuthorize`/`@RolesAllowed` even if `entra.security.method-security.enabled=false`
+  (on WebFlux, reactive method security with `@Secured`/`@PreAuthorize`);
 - preloads the security context at startup: the tenant JWKS is fetched eagerly and the effective
   configuration is logged;
 - with `@EnableEntraSecurity(failOnJwksError = true)`, startup fails if the signing keys cannot be loaded.
@@ -240,6 +244,73 @@ Tokens are cached per scope and renewed `cache.token-refresh-skew` before expiry
 | `workload-identity` | `federated-token-file` (optional) | AKS Workload Identity. Uses `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_AUTHORITY_HOST` from the webhook unless set explicitly. The file is re-read on each token request. |
 
 Each outbound client can override `credential.*`; otherwise it uses `entra.security.credential`.
+
+## Reactive (WebFlux)
+
+The starter detects a reactive web application (`spring-boot-starter-webflux` without Spring MVC, or
+`spring.main.web-application-type=reactive`) and configures a WebFlux resource server instead of the
+servlet one. Nothing changes in your configuration: the same `entra.security.*` properties, the same
+mappings and the same `@EnableEntraSecurity`.
+
+```java
+@SpringBootApplication
+@EnableEntraSecurity
+public class OrdersApplication { ... }
+
+@RestController
+class OrderController {
+
+    @GetMapping("/api/orders")
+    @Secured("ROLE_ORDERS_READ")
+    Flux<Order> list() { ... }
+
+    @PostMapping("/api/orders")
+    @PreAuthorize("hasRole('ORDERS_WRITE')")
+    Mono<Order> create(@RequestBody Order order, EntraPrincipal caller) { ... }
+
+    @GetMapping("/api/me")
+    Mono<EntraPrincipal> me(Mono<EntraPrincipal> caller) { return caller; }
+}
+```
+
+What you get, compared with the servlet stack:
+
+| | Servlet | WebFlux |
+| --- | --- | --- |
+| Filter chain | `SecurityFilterChain` `entraSecurityFilterChain` | `SecurityWebFilterChain` `entraSecurityWebFilterChain` |
+| Token validation | `JwtDecoder` | `ReactiveJwtDecoder` (`EntraReactiveJwtDecoder`): the same decoder, validators and JWKS cache, so the same tokens are accepted and rejected |
+| Role mapping | `EntraJwtAuthenticationConverter` | `ReactiveEntraJwtAuthenticationConverter`: same classification, group/app-role/client mappings and client allow-list |
+| Group overage | `GroupMembershipResolver` (`RestClient`) | `ReactiveGroupMembershipResolver` (`WebClient`), cached per user, failing closed |
+| 401 / 403 | `ProblemDetailsAuthenticationEntryPoint`, `ProblemDetailsAccessDeniedHandler` | `ServerProblemDetailsAuthenticationEntryPoint`, `ServerProblemDetailsAccessDeniedHandler`: identical status, `WWW-Authenticate` header and problem-details body |
+| Method security | `@EnableMethodSecurity`: `@Secured`, `@PreAuthorize`, `@RolesAllowed` | `@EnableReactiveMethodSecurity`: `@PreAuthorize`/`@PostAuthorize`, plus `@Secured` added by the starter |
+| Caller | `EntraPrincipal` parameter, `@AuthenticationPrincipal`, `EntraPrincipals.current()` | `EntraPrincipal` or `Mono<EntraPrincipal>` parameter, `@AuthenticationPrincipal`, `ReactiveEntraPrincipals.current()` |
+| Customising the chain | `EntraHttpSecurity` | `EntraServerHttpSecurity` |
+
+Notes:
+
+- Reactive method security only intercepts methods that return a `Publisher` (`Mono`/`Flux`), as in
+  Spring Security. `@RolesAllowed` (JSR-250) is not supported on WebFlux; use `@Secured` or `@PreAuthorize`.
+- `@EnableEntraSecurity` enables `@EnableReactiveMethodSecurity` in a reactive application (and
+  `@EnableMethodSecurity` otherwise), so you never get servlet interceptors that cannot see the reactive
+  security context. Adding `@EnableReactiveMethodSecurity` yourself works too, and `@Secured` is added to it.
+  `mode = ASPECTJ` applies to servlet applications only.
+- Validation, the Graph lookup and client-credentials token acquisition can block on the network (JWKS
+  refresh, token endpoint), so they run on `Schedulers.boundedElastic()`, never on the event loop.
+- An application-defined blocking `GroupMembershipResolver` bean is still used: it is adapted onto
+  `boundedElastic`. Define a `ReactiveGroupMembershipResolver` bean to replace the Graph lookup outright.
+- Your own `SecurityWebFilterChain` makes the default one back off. Reuse the Entra setup with
+  `EntraServerHttpSecurity`:
+
+  ```java
+  @Bean
+  SecurityWebFilterChain api(ServerHttpSecurity http, EntraServerHttpSecurity entra) {
+      http.securityMatcher(ServerWebExchangeMatchers.pathMatchers("/api/**"));
+      return entra.configure(http).build();
+  }
+  ```
+
+- Actuator health (`entraJwks`, `entraGraph`) and the `entra.security.*` meters work the same way.
+- A full example is in [`sample-reactive-api`](sample-reactive-api).
 
 ## Entra ID setup
 
@@ -402,14 +473,14 @@ names the property.
 | `cache.jwks-ttl` | `15m` | JWKS cache lifetime (unknown `kid`s trigger a rate-limited refresh). |
 | `cache.token-refresh-skew` | `5m` | Renew acquired tokens this long before expiry. |
 | `http.connect-timeout` / `read-timeout` | `5s` / `10s` | Timeouts for JWKS, token and Graph calls. |
-| `method-security.enabled` | `true` | Enable `@Secured`/`@PreAuthorize`/`@RolesAllowed`. |
+| `method-security.enabled` | `true` | Enable `@Secured`/`@PreAuthorize`/`@RolesAllowed` (on WebFlux: `@Secured`/`@PreAuthorize`). |
 | `logging.log-claims` | `false` | Log a privacy-safe claim summary at DEBUG. |
 
 ## Security defaults
 
 - **Stateless** sessions, **CSRF off**, no form login, HTTP Basic, logout or request cache.
 - **CORS** follows your `CorsConfigurationSource` bean or Spring MVC CORS configuration (nothing is
-  allowed cross-origin by default).
+  allowed cross-origin by default). On WebFlux, a `CorsConfigurationSource` bean.
 - Only **RS256** signatures, keys from the tenant JWKS; `none`, HS* and unknown keys are rejected.
 - **Issuer** exact match (v1 and v2), **audience**, **tenant** (`tid`), `exp` required, `exp`/`nbf`
   with configurable **clock skew**.
@@ -488,7 +559,8 @@ The Graph health probe is not a group lookup and does not increment `entra.secur
 
 - Replace any bean (`JwtDecoder`, `EntraAuthorityMapper`, `GroupMembershipResolver`,
   `EntraJwtAuthenticationConverter`, the problem-details handlers): they are all
-  `@ConditionalOnMissingBean`.
+  `@ConditionalOnMissingBean`. On WebFlux the same goes for `ReactiveJwtDecoder`,
+  `ReactiveGroupMembershipResolver`, `ReactiveEntraJwtAuthenticationConverter` and the `Server*` handlers.
 
 ## Testing your service
 
@@ -498,7 +570,7 @@ Add the test module next to the starter:
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-test</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -590,6 +662,44 @@ When the starter is in the test context, the annotation values go through the sa
 `client-role-mappings` are tested too. `roles = "ADMIN"` adds `ROLE_ADMIN` on top. `EntraPrincipal`
 injection, `@AuthenticationPrincipal` and `EntraPrincipals.current()` all work.
 
+### WebFlux with `WebTestClient`
+
+Everything above works for reactive services. Use `@AutoConfigureWebTestClient` instead of
+`@AutoConfigureMockMvc` and `EntraWebTestClient.bearer(...)` instead of `EntraMockMvc.bearer(...)`:
+
+```java
+@SpringBootTest
+@AutoConfigureWebTestClient
+@AutoConfigureEntraMockAuthority
+class OrderApiTest {
+
+    @Autowired WebTestClient client;
+    @Autowired EntraTestTokens tokens;
+
+    @Test
+    void readersCanList() {
+        client.get().uri("/api/orders").headers(bearer(tokens.user().groups(READERS_GROUP))).exchange()
+              .expectStatus().isOk();
+    }
+
+    @Test
+    void othersGetA403ProblemDocument() {
+        client.get().uri("/api/orders").headers(bearer(tokens.user())).exchange()
+              .expectStatus().isForbidden()
+              .expectBody().jsonPath("$.error").isEqualTo("insufficient_scope");
+    }
+
+    @Test
+    @WithMockEntraService(appRoles = "Orders.Sync")
+    void peersCanSync() {
+        client.post().uri("/internal/orders/sync").exchange().expectStatus().isOk();
+    }
+}
+```
+
+`@WithMockEntraUser` and `@WithMockEntraService` run through `ReactiveEntraJwtAuthenticationConverter` in a
+WebFlux application, so the mappings are tested there too.
+
 ## Building
 
 ```bash
@@ -603,7 +713,6 @@ no Entra tenant is needed. CI runs on Java 17 and 21.
 
 See [CHANGELOG.md](CHANGELOG.md) for what is released. Planned next:
 
-- Reactive (WebFlux) resource-server support.
 - Publishing to Maven Central (sources, javadoc, signing) and a tagged release.
 - On-behalf-of (OBO) flow for calling downstream APIs as the user.
 - Optional compact env-var syntax for role mappings.
