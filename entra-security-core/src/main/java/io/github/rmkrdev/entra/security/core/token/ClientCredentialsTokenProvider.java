@@ -1,7 +1,5 @@
 package io.github.rmkrdev.entra.security.core.token;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
@@ -9,15 +7,9 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 
@@ -27,12 +19,10 @@ import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
  */
 public final class ClientCredentialsTokenProvider implements EntraTokenProvider {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
-
     private final URI tokenEndpoint;
     private final String clientId;
     private final EntraCredential credential;
-    private final RestClient restClient;
+    private final TokenEndpointClient endpoint;
     private final Duration refreshSkew;
     private final Clock clock;
     private final EntraSecurityObservations observations;
@@ -61,7 +51,7 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
         this.tokenEndpoint = tokenEndpoint;
         this.clientId = clientId;
         this.credential = credential;
-        this.restClient = restClient;
+        this.endpoint = new TokenEndpointClient(tokenEndpoint, clientId, restClient, clock);
         this.refreshSkew = refreshSkew;
         this.clock = clock;
         this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
@@ -107,11 +97,13 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
         long start = System.nanoTime();
         try {
             CachedToken fresh = requestToken(scope);
-            observations.tokenAcquisition(credential.credentialType(), true, elapsed(start));
+            observations.tokenAcquisition(EntraSecurityObservations.GRANT_CLIENT_CREDENTIALS,
+                    credential.credentialType(), true, elapsed(start));
             return fresh;
         }
         catch (RuntimeException ex) {
-            observations.tokenAcquisition(credential.credentialType(), false, elapsed(start));
+            observations.tokenAcquisition(EntraSecurityObservations.GRANT_CLIENT_CREDENTIALS,
+                    credential.credentialType(), false, elapsed(start));
             throw ex;
         }
     }
@@ -122,64 +114,12 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
         form.add("client_id", clientId);
         form.add("scope", scope);
         credential.contribute(form, tokenEndpoint, clientId);
-        Instant requestedAt = clock.instant();
-        JsonNode body;
-        try {
-            body = restClient.post()
-                    .uri(tokenEndpoint)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .body(form)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, (request, response) -> {
-                        throw error(response.getStatusCode().value(), response.getBody());
-                    })
-                    .body(JsonNode.class);
-        }
-        catch (EntraTokenAcquisitionException ex) {
-            throw ex;
-        }
-        catch (RestClientException ex) {
-            throw new EntraTokenAcquisitionException("Token request to " + tokenEndpoint + " failed: "
-                    + ex.getMessage(), null, ex);
-        }
-        if (body == null || !body.hasNonNull("access_token")) {
-            throw new EntraTokenAcquisitionException("Token response from " + tokenEndpoint
-                    + " did not contain an access_token", null, null);
-        }
-        long expiresIn = body.path("expires_in").asLong(300);
-        Instant expiresAt = requestedAt.plusSeconds(expiresIn);
-        Duration lifetime = Duration.ofSeconds(expiresIn);
-        Duration skew = refreshSkew.compareTo(lifetime.dividedBy(2)) > 0 ? lifetime.dividedBy(2) : refreshSkew;
-        return new CachedToken(new AccessToken(body.get("access_token").asText(), expiresAt), expiresAt.minus(skew));
+        TokenEndpointClient.IssuedToken issued = endpoint.request(form, endpoint::defaultError);
+        return new CachedToken(issued.token(), TokenEndpointClient.refreshAt(issued, refreshSkew));
     }
 
     private static Duration elapsed(long startNanos) {
         return Duration.ofNanos(System.nanoTime() - startNanos);
-    }
-
-    private EntraTokenAcquisitionException error(int status, InputStream bodyStream) {
-        String error = null;
-        String description = null;
-        try (InputStream in = bodyStream) {
-            JsonNode node = JSON.readTree(in);
-            if (node != null) {
-                error = node.path("error").asText(null);
-                description = node.path("error_description").asText(null);
-            }
-        }
-        catch (IOException | RuntimeException ignored) {
-            // non-JSON error body
-        }
-        StringBuilder message = new StringBuilder("Token request to ").append(tokenEndpoint)
-                .append(" for client ").append(clientId).append(" failed with HTTP ").append(status);
-        if (error != null) {
-            message.append(": ").append(error);
-        }
-        if (description != null) {
-            message.append(" - ").append(description.lines().findFirst().orElse(description));
-        }
-        return new EntraTokenAcquisitionException(message.toString(), error, null);
     }
 
     private record CachedToken(AccessToken token, Instant refreshAt) {

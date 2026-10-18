@@ -19,6 +19,7 @@ final class MicrometerEntraSecurityObservations implements EntraSecurityObservat
     static final String JWKS_REFRESHES = "entra.security.jwks.refreshes";
 
     private static final Set<String> CREDENTIALS = Set.of("client_secret", "certificate", "workload_identity");
+    private static final Set<String> GRANTS = Set.of(GRANT_CLIENT_CREDENTIALS, GRANT_ON_BEHALF_OF);
 
     private final MeterRegistry registry;
 
@@ -38,8 +39,13 @@ final class MicrometerEntraSecurityObservations implements EntraSecurityObservat
 
     @Override
     public void tokenAcquisition(String credentialType, boolean success, Duration duration) {
-        timer(TOKEN_ACQUISITIONS, "Client-credentials calls to the Entra token endpoint", "result", result(success),
-                "credential", credential(credentialType)).record(duration(duration));
+        tokenAcquisition(GRANT_CLIENT_CREDENTIALS, credentialType, success, duration);
+    }
+
+    @Override
+    public void tokenAcquisition(String grant, String credentialType, boolean success, Duration duration) {
+        timer(TOKEN_ACQUISITIONS, "Calls to the Entra token endpoint", "result", result(success),
+                "credential", credential(credentialType), "grant", grant(grant)).record(duration(duration));
     }
 
     @Override
@@ -62,6 +68,10 @@ final class MicrometerEntraSecurityObservations implements EntraSecurityObservat
 
     private static String credential(String value) {
         return CREDENTIALS.contains(value) ? value : "unknown";
+    }
+
+    private static String grant(String value) {
+        return GRANTS.contains(value) ? value : "unknown";
     }
 
     private static Duration duration(Duration value) {
