@@ -1,5 +1,6 @@
 package io.github.rmkrdev.entra.security.autoconfigure;
 
+import java.time.Clock;
 import java.util.List;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -25,6 +26,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 
+import io.github.rmkrdev.entra.security.autoconfigure.metrics.ObservingJwtDecoder;
 import io.github.rmkrdev.entra.security.core.authority.EntraAuthorityMapper;
 import io.github.rmkrdev.entra.security.core.graph.CachingGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.GraphGroupMembershipResolver;
@@ -33,6 +35,7 @@ import io.github.rmkrdev.entra.security.core.jwt.EntraJwtAuthenticationConverter
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtDecoders;
 import io.github.rmkrdev.entra.security.core.jwt.EntraTokenClassifier;
 import io.github.rmkrdev.entra.security.core.jwt.SafeClaimLogger;
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsAccessDeniedHandler;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsAuthenticationEntryPoint;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsWriter;
@@ -52,25 +55,31 @@ public class EntraSecurityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public EntraTokenProviders entraTokenProviders(EntraSecurityProperties properties, Environment environment) {
-        return new EntraTokenProviders(properties, environment);
+    public EntraTokenProviders entraTokenProviders(EntraSecurityProperties properties, Environment environment,
+            ObjectProvider<EntraSecurityObservations> observations) {
+        return new EntraTokenProviders(properties, environment, EntraTokenProviders.defaultRestClient(properties),
+                Clock.systemUTC(), observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
     }
 
     @Bean
     @ConditionalOnMissingBean(name = "entraJwkSource")
-    public JWKSource<SecurityContext> entraJwkSource(EntraSecurityProperties properties) {
+    public JWKSource<SecurityContext> entraJwkSource(EntraSecurityProperties properties,
+            ObjectProvider<EntraSecurityObservations> observations) {
         return EntraJwtDecoders.jwkSource(properties.resolveJwkSetUri(), properties.getCache().getJwksTtl(),
-                properties.getHttp().getReadTimeout());
+                properties.getHttp().getReadTimeout(),
+                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public JwtDecoder entraJwtDecoder(JWKSource<SecurityContext> entraJwkSource, EntraSecurityProperties properties) {
+    public JwtDecoder entraJwtDecoder(JWKSource<SecurityContext> entraJwkSource, EntraSecurityProperties properties,
+            ObjectProvider<EntraSecurityObservations> observations) {
         String tenant = properties.isRequireTenantMatch()
                 && EntraSecurityProperties.GUID.matcher(properties.getTenantId()).matches()
                         ? properties.getTenantId() : null;
-        return EntraJwtDecoders.create(entraJwkSource, properties.resolveIssuers(), properties.resolveAudiences(),
-                tenant, properties.getClockSkew());
+        JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, properties.resolveIssuers(),
+                properties.resolveAudiences(), tenant, properties.getClockSkew());
+        return ObservingJwtDecoder.wrap(decoder, observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
     }
 
     @Bean
@@ -99,11 +108,12 @@ public class EntraSecurityAutoConfiguration {
     @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "graph.overage-enabled",
             havingValue = "true")
     public GroupMembershipResolver entraGroupMembershipResolver(EntraSecurityProperties properties,
-            EntraTokenProviders tokenProviders) {
+            EntraTokenProviders tokenProviders, ObjectProvider<EntraSecurityObservations> observations) {
         EntraSecurityProperties.Graph graph = properties.getGraph();
         GraphGroupMembershipResolver graphResolver = new GraphGroupMembershipResolver(
                 EntraTokenProviders.defaultRestClient(properties), tokenProviders.applicationTokenProvider(),
-                graph.getBaseUrl(), graph.getScope(), graph.getMaxPages());
+                graph.getBaseUrl(), graph.getScope(), graph.getMaxPages(),
+                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
         return new CachingGroupMembershipResolver(graphResolver, graph.getCacheTtl(), graph.getCacheMaxEntries());
     }
 
@@ -111,10 +121,11 @@ public class EntraSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public EntraJwtAuthenticationConverter entraJwtAuthenticationConverter(EntraTokenClassifier classifier,
             EntraAuthorityMapper mapper, ObjectProvider<GroupMembershipResolver> groupResolver,
-            EntraSecurityProperties properties) {
+            EntraSecurityProperties properties, ObjectProvider<EntraSecurityObservations> observations) {
         return new EntraJwtAuthenticationConverter(classifier, mapper, groupResolver.getIfAvailable(),
                 properties.getService().isRequireKnownClient(),
-                new SafeClaimLogger(properties.getLogging().isLogClaims()));
+                new SafeClaimLogger(properties.getLogging().isLogClaims()),
+                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
     }
 
     @Bean
@@ -125,8 +136,10 @@ public class EntraSecurityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ProblemDetailsAuthenticationEntryPoint entraAuthenticationEntryPoint(ProblemDetailsWriter writer) {
-        return new ProblemDetailsAuthenticationEntryPoint(writer);
+    public ProblemDetailsAuthenticationEntryPoint entraAuthenticationEntryPoint(ProblemDetailsWriter writer,
+            ObjectProvider<EntraSecurityObservations> observations) {
+        return new ProblemDetailsAuthenticationEntryPoint(writer,
+                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
     }
 
     @Bean

@@ -19,7 +19,10 @@ import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jose.util.DefaultResourceRetriever;
+import com.nimbusds.jose.util.ResourceRetriever;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 
 /**
  * Builds a {@link NimbusJwtDecoder} hardened for Entra access tokens: RS256 only, keys from the
@@ -37,9 +40,19 @@ public final class EntraJwtDecoders {
      * A cached, rate-limited, retrying JWKS source for the given JWKS endpoint.
      */
     public static JWKSource<SecurityContext> jwkSource(URI jwkSetUri, Duration cacheTtl, Duration httpTimeout) {
+        return jwkSource(jwkSetUri, cacheTtl, httpTimeout, EntraSecurityObservations.NO_OP);
+    }
+
+    /**
+     * Same as {@link #jwkSource(URI, Duration, Duration)}, reporting each JWKS fetch to {@code observations}.
+     * Cache hits are not reported. {@link EntraSecurityObservations#NO_OP} keeps the previous retriever.
+     */
+    public static JWKSource<SecurityContext> jwkSource(URI jwkSetUri, Duration cacheTtl, Duration httpTimeout,
+            EntraSecurityObservations observations) {
         int timeoutMillis = (int) Math.min(Integer.MAX_VALUE, httpTimeout.toMillis());
-        DefaultResourceRetriever retriever = new DefaultResourceRetriever(timeoutMillis, timeoutMillis,
-                JWKS_SIZE_LIMIT_BYTES);
+        ResourceRetriever retriever = observations == null || observations == EntraSecurityObservations.NO_OP
+                ? new DefaultResourceRetriever(timeoutMillis, timeoutMillis, JWKS_SIZE_LIMIT_BYTES)
+                : new ObservingResourceRetriever(timeoutMillis, timeoutMillis, JWKS_SIZE_LIMIT_BYTES, observations);
         try {
             return JWKSourceBuilder.create(jwkSetUri.toURL(), retriever)
                     .cache(cacheTtl.toMillis(), httpTimeout.toMillis())

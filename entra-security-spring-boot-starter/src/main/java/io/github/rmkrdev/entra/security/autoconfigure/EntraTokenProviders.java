@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties.Credential;
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties.CredentialType;
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.token.ClientCertificateCredential;
 import io.github.rmkrdev.entra.security.core.token.ClientCredentialsTokenProvider;
 import io.github.rmkrdev.entra.security.core.token.ClientSecretCredential;
@@ -31,6 +32,7 @@ public class EntraTokenProviders {
     private final Environment environment;
     private final RestClient restClient;
     private final Clock clock;
+    private final EntraSecurityObservations observations;
 
     public EntraTokenProviders(EntraSecurityProperties properties, Environment environment) {
         this(properties, environment, defaultRestClient(properties), Clock.systemUTC());
@@ -38,13 +40,23 @@ public class EntraTokenProviders {
 
     public EntraTokenProviders(EntraSecurityProperties properties, Environment environment, RestClient restClient,
             Clock clock) {
+        this(properties, environment, restClient, clock, EntraSecurityObservations.NO_OP);
+    }
+
+    /**
+     * @param observations token-acquisition hook forwarded to each provider; {@code null} is a no-op
+     */
+    public EntraTokenProviders(EntraSecurityProperties properties, Environment environment, RestClient restClient,
+            Clock clock, EntraSecurityObservations observations) {
         this.properties = properties;
         this.environment = environment;
         this.restClient = restClient;
         this.clock = clock;
+        this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
     }
 
-    static RestClient defaultRestClient(EntraSecurityProperties properties) {
+    /** HTTP client that uses {@code entra.security.http} connect and read timeouts. */
+    public static RestClient defaultRestClient(EntraSecurityProperties properties) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(properties.getHttp().getConnectTimeout());
         factory.setReadTimeout(properties.getHttp().getReadTimeout());
@@ -74,7 +86,7 @@ public class EntraTokenProviders {
                 properties.getAuthorityHost().toString());
         URI tokenEndpoint = ClientCredentialsTokenProvider.tokenEndpoint(URI.create(authority), tenantId);
         return new ClientCredentialsTokenProvider(tokenEndpoint, clientId, credential(effective), restClient,
-                properties.getCache().getTokenRefreshSkew(), clock);
+                properties.getCache().getTokenRefreshSkew(), clock, observations);
     }
 
     private EntraCredential credential(Credential credential) {

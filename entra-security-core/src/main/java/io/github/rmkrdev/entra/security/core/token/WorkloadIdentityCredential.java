@@ -35,6 +35,11 @@ public final class WorkloadIdentityCredential implements EntraCredential {
         form.add("client_assertion", readAssertion());
     }
 
+    @Override
+    public String credentialType() {
+        return "workload_identity";
+    }
+
     public Path getTokenFile() {
         return tokenFile;
     }

@@ -1,0 +1,70 @@
+package io.github.rmkrdev.entra.security.autoconfigure.metrics;
+
+import java.time.Duration;
+import java.util.Set;
+
+import io.github.rmkrdev.entra.security.core.jwt.JwtAuthenticationOutcomes;
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+
+/**
+ * Micrometer bindings for {@link EntraSecurityObservations}. Tag values are taken from a fixed set.
+ */
+final class MicrometerEntraSecurityObservations implements EntraSecurityObservations {
+
+    static final String JWT_AUTHENTICATIONS = "entra.security.jwt.authentications";
+    static final String GRAPH_LOOKUPS = "entra.security.graph.lookups";
+    static final String TOKEN_ACQUISITIONS = "entra.security.token.acquisitions";
+    static final String JWKS_REFRESHES = "entra.security.jwks.refreshes";
+
+    private static final Set<String> CREDENTIALS = Set.of("client_secret", "certificate", "workload_identity");
+
+    private final MeterRegistry registry;
+
+    MicrometerEntraSecurityObservations(MeterRegistry registry) {
+        this.registry = registry;
+    }
+
+    @Override
+    public void jwtAuthentication(boolean success, String reason) {
+        registry.counter(JWT_AUTHENTICATIONS, "result", result(success), "reason", reason(reason)).increment();
+    }
+
+    @Override
+    public void graphLookup(boolean success, Duration duration) {
+        timer(GRAPH_LOOKUPS, "Microsoft Graph group-overage lookups", "result", result(success)).record(duration(duration));
+    }
+
+    @Override
+    public void tokenAcquisition(String credentialType, boolean success, Duration duration) {
+        timer(TOKEN_ACQUISITIONS, "Client-credentials calls to the Entra token endpoint", "result", result(success),
+                "credential", credential(credentialType)).record(duration(duration));
+    }
+
+    @Override
+    public void jwksRefresh(boolean success, Duration duration) {
+        timer(JWKS_REFRESHES, "Fetches of the tenant JWKS document", "result", result(success))
+                .record(duration(duration));
+    }
+
+    private Timer timer(String name, String description, String... tags) {
+        return Timer.builder(name).description(description).tags(tags).register(registry);
+    }
+
+    private static String result(boolean success) {
+        return success ? "success" : "failure";
+    }
+
+    private static String reason(String value) {
+        return JwtAuthenticationOutcomes.isKnown(value) ? value : JwtAuthenticationOutcomes.INVALID_TOKEN;
+    }
+
+    private static String credential(String value) {
+        return CREDENTIALS.contains(value) ? value : "unknown";
+    }
+
+    private static Duration duration(Duration value) {
+        return value == null || value.isNegative() ? Duration.ZERO : value;
+    }
+}

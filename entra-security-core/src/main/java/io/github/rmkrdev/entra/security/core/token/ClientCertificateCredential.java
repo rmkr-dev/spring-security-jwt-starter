@@ -163,6 +163,11 @@ public final class ClientCertificateCredential implements EntraCredential {
         form.add("client_assertion", createAssertion(tokenEndpoint, clientId));
     }
 
+    @Override
+    public String credentialType() {
+        return "certificate";
+    }
+
     /**
      * Creates the signed client assertion JWT.
      */
