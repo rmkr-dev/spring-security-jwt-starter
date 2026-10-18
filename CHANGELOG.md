@@ -6,13 +6,50 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-18
+
 ### Added
 
+- Compact role mappings for environment variables and ConfigMap scalars:
+  `group-role-mappings-compact`, `app-role-mappings-compact` and `client-role-mappings-compact`
+  (for example `ENTRA_SECURITY_GROUPROLEMAPPINGSCOMPACT="<guid>=ADMIN|READER;<guid>=READER"`).
+  - Entries are separated by `;` or `,`. Roles within an entry are separated by `|`, and a repeated key
+    adds roles.
+  - They are merged with the map form, with keys compared case-insensitively.
+  - Malformed values stop startup with a message naming the property, the entry number and the problem.
+    App role keys must not contain whitespace and client ids must be GUIDs.
+  - `CompactRoleMappings` (core) does the parsing and merging for applications that don't use Spring
+    Boot.
+- Encrypted PEM private keys: `credential.type=certificate` accepts PKCS#8 `ENCRYPTED PRIVATE KEY` blocks,
+  decrypted with `credential.certificate-password`. This covers PBES2, which is what OpenSSL writes, and
+  the PBES1 schemes the JDK supports. `ClientCertificateCredential.fromPem(pem, password)` is the core
+  equivalent.
+- Azure Key Vault certificate credentials: `credential.type=key-vault-certificate` with
+  `credential.key-vault.vault-url`, `certificate-name` and optional `certificate-version`,
+  `refresh-interval` (default `1h`), `retry-interval` (default `1m`) and `identity-client-id`.
+  - The vault is read with `DefaultAzureCredential` (workload identity on AKS, managed identity
+    elsewhere). A `TokenCredential` bean named `entraKeyVaultTokenCredential` replaces it.
+  - The private key is read through `azure-security-keyvault-secrets`, or through
+    `azure-security-keyvault-certificates` when only that library is present. PKCS#12 and PEM content
+    types are both supported.
+  - `RefreshingCertificateCredential` (core) caches the certificate and reloads it in the background of
+    token requests. A failed reload keeps the cached certificate and retries after `retry-interval`.
+  - Auto-configured by `EntraKeyVaultAutoConfiguration` only when `azure-identity` and one of the Key Vault
+    libraries are on the classpath. All three are optional dependencies of the starter. Configuring the
+    type without them fails startup and names the dependencies to add.
 - Dependabot for Maven dependencies and GitHub Actions (weekly; Spring Boot major upgrades excluded).
 - CodeQL analysis for Java on pull requests, pushes to `main` and a weekly schedule.
 - JaCoCo coverage reports in every module, a line and branch minimum per library module enforced by
   `mvn verify`, and a coverage summary and report artifact in CI.
 - `SECURITY.md`, `CONTRIBUTING.md`, and issue and pull request templates.
+
+### Changed
+
+- `EntraAuthorityMapper` is built from `EntraSecurityProperties.resolveGroupRoleMappings()`,
+  `resolveAppRoleMappings()` and `resolveClientRoleMappings()`, which combine the map and compact forms.
+- `EntraTokenProviders` has a constructor that takes a `KeyVaultCredentialFactory`. The existing
+  constructors are unchanged.
+- The parent POM imports `com.azure:azure-sdk-bom` 1.3.9.
 
 ## [0.5.0] - 2026-10-18
 
@@ -159,7 +196,8 @@ All notable changes to this project are documented here. The format follows
 - Tests against locally generated RSA keys and WireMock (JWKS, token endpoint, Graph); GitHub Actions on
   Java 17 and 21.
 
-[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.2.0...v0.3.0

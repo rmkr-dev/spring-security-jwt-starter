@@ -54,7 +54,7 @@ public List<Order> orders() { ... }
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-spring-boot-starter</artifactId>
-    <version>0.5.0</version>
+    <version>0.6.0</version>
 </dependency>
 ```
 
@@ -213,7 +213,7 @@ Configure outbound clients and use the interceptor:
 entra:
   security:
     credential:
-      type: workload-identity        # or client-secret / certificate
+      type: workload-identity        # or client-secret / certificate / key-vault-certificate
     outbound:
       clients:
         inventory-api:
@@ -242,10 +242,89 @@ Tokens are cached per scope and renewed `cache.token-refresh-skew` before expiry
 | Credential type | Settings | Notes |
 | --- | --- | --- |
 | `client-secret` | `client-secret` | Supply it from a Kubernetes Secret. |
-| `certificate` | `certificate-path`, `certificate-password` | PEM (certificate + unencrypted PKCS#8 key) or `.p12`/`.pfx`. Sends an RS256 client assertion with `x5t`. |
+| `certificate` | `certificate-path`, `certificate-password` | PEM (certificate + PKCS#8 key) or `.p12`/`.pfx`. The PEM key may be encrypted (`ENCRYPTED PRIVATE KEY`); `certificate-password` then decrypts it. Sends an RS256 client assertion with `x5t`. |
 | `workload-identity` | `federated-token-file` (optional) | AKS Workload Identity. Uses `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_AUTHORITY_HOST` from the webhook unless set explicitly. The file is re-read on each token request. |
+| `key-vault-certificate` | `key-vault.vault-url`, `key-vault.certificate-name` | Certificate kept in Azure Key Vault, read with workload identity or managed identity and reloaded periodically. Needs the Azure SDK; see [Key Vault certificates](#key-vault-certificates). |
 
 Each outbound client can override `credential.*`; otherwise it uses `entra.security.credential`.
+
+### Encrypted PEM keys
+
+A PEM file can hold the private key encrypted, as PKCS#8 `ENCRYPTED PRIVATE KEY`. Put the password in
+`certificate-password`, from a Kubernetes Secret like any other secret:
+
+```bash
+# Encrypt an existing key (PBES2: PBKDF2-HMAC-SHA256 with AES-256-CBC)
+openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256 -in key.pem -out key-encrypted.pem
+cat cert.pem key-encrypted.pem > client.pem
+```
+
+```yaml
+entra:
+  security:
+    credential:
+      type: certificate
+      certificate-path: /etc/entra-cert/client.pem
+      # certificate-password comes from the Secret: entra.security.credential.certificate-password
+```
+
+PBES2 schemes (what current OpenSSL writes) and the PBES1 schemes the JDK supports are accepted. Legacy
+OpenSSL `Proc-Type: 4,ENCRYPTED` PKCS#1 keys are not; convert them with `openssl pkcs8 -topk8`. A
+missing or wrong password stops startup with a message that says so, without the password in it.
+
+### Key Vault certificates
+
+With `credential.type=key-vault-certificate` the certificate and its private key are read from Azure Key
+Vault instead of a file. Key Vault support is optional. It is auto-configured only when `azure-identity`
+and one of the Key Vault client libraries are on the classpath:
+
+```xml
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-identity</artifactId>
+</dependency>
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-security-keyvault-secrets</artifactId>
+    <!-- or azure-security-keyvault-certificates -->
+</dependency>
+```
+
+Import `com.azure:azure-sdk-bom` to manage the versions. The starter is built against 1.3.9.
+
+```yaml
+entra:
+  security:
+    credential:
+      type: key-vault-certificate
+      key-vault:
+        vault-url: https://orders-kv.vault.azure.net
+        certificate-name: orders-api-client
+        # certificate-version: 3f2a...       # default: latest, so rotations are picked up
+        # refresh-interval: 1h               # how often the certificate is reloaded
+        # retry-interval: 1m                 # wait after a failed reload; the cached certificate stays in use
+        # identity-client-id: <guid>         # user-assigned identity; default AZURE_CLIENT_ID / system-assigned
+```
+
+- **Identity.** The vault is read with `DefaultAzureCredential`. On AKS it picks up workload identity
+  from the webhook's `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_FEDERATED_TOKEN_FILE`. On VMs, App
+  Service and Container Apps it uses managed identity. To use another identity, define a `TokenCredential`
+  bean named `entraKeyVaultTokenCredential`.
+- **Permissions.** The identity needs to read the certificate's secret, because that is where Key Vault
+  keeps the private key. Grant the *Key Vault Secrets User* role (with `azure-security-keyvault-secrets`)
+  or *Key Vault Certificate User* (with `azure-security-keyvault-certificates`). The certificate policy
+  must keep the key exportable, which is the default. Both the PKCS#12 and the PEM content types work.
+- **Caching and rotation.** The certificate is loaded on the first token request and reloaded every
+  `refresh-interval`. The reload runs on one thread while the others keep signing with the cached
+  certificate. If a reload fails, the cached certificate stays in use and the reload is retried after
+  `retry-interval`. Only a failure to load the first certificate reaches the caller, as an
+  `EntraTokenAcquisitionException`. Credentials for the same certificate share one cache.
+- **Entra.** Upload the new certificate's public part to the app registration before rotating it in Key
+  Vault. Entra only accepts assertions signed with a certificate it knows.
+
+If `key-vault-certificate` is configured but the Azure SDK is missing, startup fails and the message
+names the dependencies to add. Applications that don't use Key Vault aren't affected: the Azure classes
+are only loaded when they are present.
 
 ## Calling APIs as the user (on-behalf-of)
 
@@ -503,8 +582,42 @@ Full manifests: [`sample-api/k8s`](sample-api/k8s).
 
 **Environment variables** work for scalar values: `ENTRA_SECURITY_TENANTID`, `ENTRA_SECURITY_CLIENTID`,
 `ENTRA_SECURITY_CLOCKSKEW=90s`, `ENTRA_SECURITY_GRAPH_OVERAGEENABLED=true`,
-`ENTRA_SECURITY_CREDENTIAL_CLIENTSECRET` (from `secretKeyRef`). Map keys such as group GUIDs cannot be
-written as env var names, so put mappings in the ConfigMap file or in `SPRING_APPLICATION_JSON`:
+`ENTRA_SECURITY_CREDENTIAL_CLIENTSECRET` (from `secretKeyRef`). Map keys such as group GUIDs can't be
+written as env var names, so use the compact mapping properties below, the ConfigMap file, or
+`SPRING_APPLICATION_JSON`.
+
+### Compact role mappings
+
+`group-role-mappings-compact`, `app-role-mappings-compact` and `client-role-mappings-compact` hold the
+same mappings as the map properties, written on one line. They fit an environment variable or a plain
+ConfigMap value:
+
+```yaml
+# ConfigMap used with envFrom
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-api-env
+data:
+  ENTRA_SECURITY_GROUPROLEMAPPINGSCOMPACT: >-
+    aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa=ORDERS_READ;
+    bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb=ORDERS_READ|ORDERS_WRITE
+  ENTRA_SECURITY_APPROLEMAPPINGSCOMPACT: "Orders.Sync=ORDERS_SYNC"
+  ENTRA_SECURITY_CLIENTROLEMAPPINGSCOMPACT: "cccccccc-cccc-cccc-cccc-cccccccccccc=ORDERS_SYNC"
+```
+
+- Entries are `key=ROLE`, separated by `;` or `,`. Whitespace and newlines around them are ignored, and so
+  is a trailing separator.
+- Give a key several roles with `|` (`key=ADMIN|READER`) or by repeating it (`key=ADMIN,key=READER`).
+- Roles may include the `ROLE_` prefix or leave it off, as in the map form.
+- The compact and map forms are merged. A key that appears in both gets the roles from both, and keys are
+  compared case-insensitively.
+- Startup fails on a malformed value, and the message names the property, the entry and the problem. For
+  example: `entra.security.group-role-mappings-compact: entry 2 'bbbb...' is missing '='; expected
+  <group>=<ROLE>[|<ROLE>...]`. App role keys can't contain whitespace, and client ids must be GUIDs.
+- Keys containing `=`, `;`, `,` or `|` can't be written this way, so use the map form for them.
+
+`SPRING_APPLICATION_JSON` also works for the map form:
 
 ```bash
 SPRING_APPLICATION_JSON='{"entra":{"security":{"group-role-mappings":{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":["ORDERS_READ"]}}}}'
@@ -533,6 +646,9 @@ names the property.
 | `group-role-mappings` | — | Group id or name → roles. |
 | `app-role-mappings` | — | App role value (`roles` claim) → roles. |
 | `client-role-mappings` | — | Client id (`azp`/`appid`) → roles, for app-only tokens. |
+| `group-role-mappings-compact` | — | One-line group mappings (`<group>=<ROLE>[\|<ROLE>];...`), merged with `group-role-mappings`. |
+| `app-role-mappings-compact` | — | One-line app role mappings, merged with `app-role-mappings`. |
+| `client-role-mappings-compact` | — | One-line client mappings (GUID keys), merged with `client-role-mappings`. |
 | `user.include-roles-claim` | `true` | Map the `roles` claim of user tokens. |
 | `user.include-scopes` | `false` | Grant `SCOPE_<scp>` authorities. |
 | `user.default-roles` | — | Roles for every user. |
@@ -545,11 +661,15 @@ names the property.
 | `graph.cache-ttl` | `10m` | Group cache lifetime per user. |
 | `graph.cache-max-entries` | `10000` | Group cache size. |
 | `graph.max-pages` | `20` | Max Graph pages per lookup. |
-| `credential.type` | `none` | `none`, `client-secret`, `certificate`, `workload-identity`. |
+| `credential.type` | `none` | `none`, `client-secret`, `certificate`, `workload-identity`, `key-vault-certificate`. |
 | `credential.tenant-id` / `client-id` | API values (or `AZURE_*` for workload identity) | Identity requesting tokens. |
 | `credential.client-secret` | — | Client secret. |
-| `credential.certificate-path` / `certificate-password` | — | PEM or PKCS#12 certificate. |
+| `credential.certificate-path` / `certificate-password` | — | PEM or PKCS#12 certificate; the password opens the keystore or decrypts an encrypted PEM key. |
 | `credential.federated-token-file` | `$AZURE_FEDERATED_TOKEN_FILE` | Workload identity token file. |
+| `credential.key-vault.vault-url` / `certificate-name` | — | Key Vault certificate (`https://<vault>.vault.azure.net`). |
+| `credential.key-vault.certificate-version` | latest | Pin a certificate version. |
+| `credential.key-vault.refresh-interval` / `retry-interval` | `1h` / `1m` | Reload period, and the wait after a failed reload. |
+| `credential.key-vault.identity-client-id` | `AZURE_CLIENT_ID` or system-assigned | Managed or workload identity used to read the vault. |
 | `outbound.clients.<name>.flow` | `client-credentials` | `client-credentials` (app-only) or `on-behalf-of` (as the calling user). |
 | `outbound.clients.<name>.scope` | **required** | Scope for the peer: `api://<peer>/.default`, or delegated scopes such as `api://<peer>/Orders.Read` for `on-behalf-of`. |
 | `outbound.clients.<name>.base-url` | — | Peer base URL. |
@@ -656,7 +776,7 @@ Add the test module next to the starter:
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-test</artifactId>
-    <version>0.5.0</version>
+    <version>0.6.0</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -835,8 +955,6 @@ contribute and [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 See [CHANGELOG.md](CHANGELOG.md) for what is released. Planned next:
 
 - Publishing to Maven Central (sources, javadoc, signing).
-- Optional compact env-var syntax for role mappings.
-- Encrypted PEM keys and Key Vault-backed certificates.
 
 ## License
 

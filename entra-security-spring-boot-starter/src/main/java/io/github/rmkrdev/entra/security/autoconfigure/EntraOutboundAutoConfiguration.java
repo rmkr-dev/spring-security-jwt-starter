@@ -16,6 +16,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties.OutboundFlow;
+import io.github.rmkrdev.entra.security.autoconfigure.keyvault.KeyVaultCredentialFactory;
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.web.InteractionRequiredExceptionHandler;
 import io.github.rmkrdev.entra.security.core.web.server.ServerInteractionRequiredExceptionHandler;
@@ -34,10 +35,12 @@ public class EntraOutboundAutoConfiguration {
     @ConditionalOnMissingBean
     public EntraOutboundClients entraOutboundClients(EntraSecurityProperties properties, Environment environment,
             ObjectProvider<EntraTokenProviders> tokenProviders,
-            ObjectProvider<EntraSecurityObservations> observations) {
+            ObjectProvider<EntraSecurityObservations> observations,
+            ObjectProvider<KeyVaultCredentialFactory> keyVaultCredentials) {
         EntraTokenProviders providers = tokenProviders.getIfAvailable(() -> new EntraTokenProviders(properties,
                 environment, EntraTokenProviders.defaultRestClient(properties), Clock.systemUTC(),
-                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP)));
+                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP),
+                keyVaultCredentials.getIfAvailable()));
         Map<String, EntraOutboundClients.Client> clients = new LinkedHashMap<>();
         properties.getOutbound().getClients().forEach((name, config) -> clients.put(name,
                 config.getFlow() == OutboundFlow.ON_BEHALF_OF

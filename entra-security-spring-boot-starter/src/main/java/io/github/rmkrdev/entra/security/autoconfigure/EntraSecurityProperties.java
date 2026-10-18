@@ -12,7 +12,12 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.Errors;
+import org.springframework.validation.Validator;
 import org.springframework.validation.annotation.Validated;
+
+import io.github.rmkrdev.entra.security.core.authority.CompactRoleMappings;
+import io.github.rmkrdev.entra.security.core.authority.CompactRoleMappings.KeyType;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
@@ -29,7 +34,7 @@ import jakarta.validation.constraints.NotNull;
  */
 @Validated
 @ConfigurationProperties(prefix = EntraSecurityProperties.PREFIX)
-public class EntraSecurityProperties {
+public class EntraSecurityProperties implements Validator {
 
     public static final String PREFIX = "entra.security";
 
@@ -82,6 +87,22 @@ public class EntraSecurityProperties {
 
     /** Calling client id (azp/appid) to roles. Also the allow-list when service.require-known-client is true. */
     private Map<String, List<String>> clientRoleMappings = new LinkedHashMap<>();
+
+    /**
+     * Group mappings on one line, merged with group-role-mappings: {@code <group>=<ROLE>[|<ROLE>...]} entries
+     * separated by ';' or ','. Suits environment variables (ENTRA_SECURITY_GROUPROLEMAPPINGSCOMPACT) and
+     * ConfigMap scalars.
+     */
+    private String groupRoleMappingsCompact;
+
+    /** App role mappings on one line, merged with app-role-mappings: {@code <app-role>=<ROLE>[|<ROLE>...];...}. */
+    private String appRoleMappingsCompact;
+
+    /**
+     * Client mappings on one line, merged with client-role-mappings: {@code <client-id>=<ROLE>[|<ROLE>...];...}.
+     * Client ids must be GUIDs.
+     */
+    private String clientRoleMappingsCompact;
 
     @Valid
     private final User user = new User();
@@ -146,7 +167,51 @@ public class EntraSecurityProperties {
         return requireTenantMatch && tenantId != null && GUID.matcher(tenantId).matches() ? tenantId : null;
     }
 
+    /** Group mappings from group-role-mappings and group-role-mappings-compact combined. */
+    public Map<String, List<String>> resolveGroupRoleMappings() {
+        return CompactRoleMappings.merge(groupRoleMappings, CompactRoleMappings.parse(
+                PREFIX + ".group-role-mappings-compact", groupRoleMappingsCompact, KeyType.GROUP));
+    }
+
+    /** App role mappings from app-role-mappings and app-role-mappings-compact combined. */
+    public Map<String, List<String>> resolveAppRoleMappings() {
+        return CompactRoleMappings.merge(appRoleMappings, CompactRoleMappings.parse(
+                PREFIX + ".app-role-mappings-compact", appRoleMappingsCompact, KeyType.APP_ROLE));
+    }
+
+    /** Client mappings (and allow-list) from client-role-mappings and client-role-mappings-compact combined. */
+    public Map<String, List<String>> resolveClientRoleMappings() {
+        return CompactRoleMappings.merge(clientRoleMappings, CompactRoleMappings.parse(
+                PREFIX + ".client-role-mappings-compact", clientRoleMappingsCompact, KeyType.CLIENT_ID));
+    }
+
     // ---------------------------------------------------------------- cross-field validation
+
+    @Override
+    public boolean supports(Class<?> type) {
+        return EntraSecurityProperties.class.isAssignableFrom(type);
+    }
+
+    /**
+     * Checks the compact role mappings, reporting the entry that is wrong and why. Called by Spring Boot
+     * when the properties are bound, alongside the bean validation constraints.
+     */
+    @Override
+    public void validate(Object target, Errors errors) {
+        EntraSecurityProperties properties = (EntraSecurityProperties) target;
+        validateCompact(errors, "groupRoleMappingsCompact", properties::resolveGroupRoleMappings);
+        validateCompact(errors, "appRoleMappingsCompact", properties::resolveAppRoleMappings);
+        validateCompact(errors, "clientRoleMappingsCompact", properties::resolveClientRoleMappings);
+    }
+
+    private static void validateCompact(Errors errors, String field, Runnable resolve) {
+        try {
+            resolve.run();
+        }
+        catch (IllegalArgumentException ex) {
+            errors.rejectValue(field, "invalidCompactRoleMappings", ex.getMessage());
+        }
+    }
 
     @AssertTrue(message = "entra.security.tenant-id must be a single tenant: 'common', 'organizations' and "
             + "'consumers' are not supported")
@@ -275,6 +340,30 @@ public class EntraSecurityProperties {
 
     public void setAppRoleMappings(Map<String, List<String>> appRoleMappings) {
         this.appRoleMappings = appRoleMappings;
+    }
+
+    public String getGroupRoleMappingsCompact() {
+        return groupRoleMappingsCompact;
+    }
+
+    public void setGroupRoleMappingsCompact(String groupRoleMappingsCompact) {
+        this.groupRoleMappingsCompact = groupRoleMappingsCompact;
+    }
+
+    public String getAppRoleMappingsCompact() {
+        return appRoleMappingsCompact;
+    }
+
+    public void setAppRoleMappingsCompact(String appRoleMappingsCompact) {
+        this.appRoleMappingsCompact = appRoleMappingsCompact;
+    }
+
+    public String getClientRoleMappingsCompact() {
+        return clientRoleMappingsCompact;
+    }
+
+    public void setClientRoleMappingsCompact(String clientRoleMappingsCompact) {
+        this.clientRoleMappingsCompact = clientRoleMappingsCompact;
     }
 
     public Map<String, List<String>> getClientRoleMappings() {
@@ -478,16 +567,21 @@ public class EntraSecurityProperties {
         NONE,
         /** Client secret. */
         CLIENT_SECRET,
-        /** Certificate (PEM with PKCS#8 key, or PKCS#12). */
+        /** Certificate (PEM with a PKCS#8 key, optionally encrypted, or PKCS#12). */
         CERTIFICATE,
         /** Azure Workload Identity federated token file (AKS). */
-        WORKLOAD_IDENTITY
+        WORKLOAD_IDENTITY,
+        /**
+         * Certificate stored in Azure Key Vault, read with managed identity or workload identity and reloaded
+         * periodically. Needs azure-identity and azure-security-keyvault-secrets (or -certificates).
+         */
+        KEY_VAULT_CERTIFICATE
     }
 
     /** A confidential-client credential. */
     public static class Credential {
 
-        /** Credential type: none, client-secret, certificate or workload-identity. */
+        /** Credential type: none, client-secret, certificate, workload-identity or key-vault-certificate. */
         @NotNull
         private CredentialType type = CredentialType.NONE;
 
@@ -503,11 +597,18 @@ public class EntraSecurityProperties {
         /** PEM (certificate + PKCS#8 key) or PKCS#12 (.p12/.pfx) file, for type certificate. */
         private String certificatePath;
 
-        /** PKCS#12 password, for type certificate. */
+        /**
+         * For type certificate: the PKCS#12 keystore password, or the password of an encrypted PEM private key
+         * (ENCRYPTED PRIVATE KEY). Supply it from a Kubernetes Secret.
+         */
         private String certificatePassword;
 
         /** Federated token file, for type workload-identity. Defaults to AZURE_FEDERATED_TOKEN_FILE. */
         private String federatedTokenFile;
+
+        /** Key Vault certificate, for type key-vault-certificate. */
+        @Valid
+        private final KeyVault keyVault = new KeyVault();
 
         @AssertTrue(message = "credential.client-secret is required when credential.type is client-secret")
         public boolean isClientSecretPresent() {
@@ -517,6 +618,23 @@ public class EntraSecurityProperties {
         @AssertTrue(message = "credential.certificate-path is required when credential.type is certificate")
         public boolean isCertificatePathPresent() {
             return type != CredentialType.CERTIFICATE || hasText(certificatePath);
+        }
+
+        @AssertTrue(message = "credential.key-vault.vault-url and credential.key-vault.certificate-name are required "
+                + "when credential.type is key-vault-certificate")
+        public boolean isKeyVaultCertificateConfigured() {
+            return type != CredentialType.KEY_VAULT_CERTIFICATE
+                    || (keyVault.getVaultUrl() != null && hasText(keyVault.getCertificateName()));
+        }
+
+        @AssertTrue(message = "credential.key-vault.vault-url must be an https URL, for example "
+                + "https://<vault-name>.vault.azure.net")
+        public boolean isKeyVaultUrlHttps() {
+            return keyVault.getVaultUrl() == null || "https".equalsIgnoreCase(keyVault.getVaultUrl().getScheme());
+        }
+
+        public KeyVault getKeyVault() {
+            return keyVault;
         }
 
         private static boolean hasText(String value) {
@@ -577,6 +695,81 @@ public class EntraSecurityProperties {
 
         public void setFederatedTokenFile(String federatedTokenFile) {
             this.federatedTokenFile = federatedTokenFile;
+        }
+    }
+
+    /** A client certificate kept in Azure Key Vault. */
+    public static class KeyVault {
+
+        /** Vault URL, for example https://my-vault.vault.azure.net. */
+        private URI vaultUrl;
+
+        /** Name of the Key Vault certificate. Its private key must be exportable (the default). */
+        private String certificateName;
+
+        /** Certificate version. Defaults to the latest version, so rotations are picked up on refresh. */
+        private String certificateVersion;
+
+        /** How often the certificate is reloaded from Key Vault. */
+        @NotNull
+        private Duration refreshInterval = Duration.ofHours(1);
+
+        /** How long to wait before retrying after a failed reload. The cached certificate is used meanwhile. */
+        @NotNull
+        private Duration retryInterval = Duration.ofMinutes(1);
+
+        /**
+         * Client id of the user-assigned managed identity or workload identity used to read the vault. Defaults
+         * to AZURE_CLIENT_ID (set by the AKS workload identity webhook) or the system-assigned identity.
+         */
+        private String identityClientId;
+
+        public URI getVaultUrl() {
+            return vaultUrl;
+        }
+
+        public void setVaultUrl(URI vaultUrl) {
+            this.vaultUrl = vaultUrl;
+        }
+
+        public String getCertificateName() {
+            return certificateName;
+        }
+
+        public void setCertificateName(String certificateName) {
+            this.certificateName = certificateName;
+        }
+
+        public String getCertificateVersion() {
+            return certificateVersion;
+        }
+
+        public void setCertificateVersion(String certificateVersion) {
+            this.certificateVersion = certificateVersion;
+        }
+
+        public Duration getRefreshInterval() {
+            return refreshInterval;
+        }
+
+        public void setRefreshInterval(Duration refreshInterval) {
+            this.refreshInterval = refreshInterval;
+        }
+
+        public Duration getRetryInterval() {
+            return retryInterval;
+        }
+
+        public void setRetryInterval(Duration retryInterval) {
+            this.retryInterval = retryInterval;
+        }
+
+        public String getIdentityClientId() {
+            return identityClientId;
+        }
+
+        public void setIdentityClientId(String identityClientId) {
+            this.identityClientId = identityClientId;
         }
     }
 

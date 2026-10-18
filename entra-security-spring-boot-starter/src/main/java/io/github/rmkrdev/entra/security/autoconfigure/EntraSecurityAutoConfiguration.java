@@ -27,6 +27,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 
+import io.github.rmkrdev.entra.security.autoconfigure.keyvault.KeyVaultCredentialFactory;
 import io.github.rmkrdev.entra.security.autoconfigure.metrics.ObservingJwtDecoder;
 import io.github.rmkrdev.entra.security.core.authority.EntraAuthorityMapper;
 import io.github.rmkrdev.entra.security.core.graph.CachingGroupMembershipResolver;
@@ -61,9 +62,11 @@ public class EntraSecurityAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public EntraTokenProviders entraTokenProviders(EntraSecurityProperties properties, Environment environment,
-            ObjectProvider<EntraSecurityObservations> observations) {
+            ObjectProvider<EntraSecurityObservations> observations,
+            ObjectProvider<KeyVaultCredentialFactory> keyVaultCredentials) {
         return new EntraTokenProviders(properties, environment, EntraTokenProviders.defaultRestClient(properties),
-                Clock.systemUTC(), observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+                Clock.systemUTC(), observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP),
+                keyVaultCredentials.getIfAvailable());
     }
 
     @Bean
@@ -85,9 +88,9 @@ public class EntraSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public EntraAuthorityMapper entraAuthorityMapper(EntraSecurityProperties properties) {
         return EntraAuthorityMapper.builder()
-                .groupRoleMappings(properties.getGroupRoleMappings())
-                .appRoleMappings(properties.getAppRoleMappings())
-                .clientRoleMappings(properties.getClientRoleMappings())
+                .groupRoleMappings(properties.resolveGroupRoleMappings())
+                .appRoleMappings(properties.resolveAppRoleMappings())
+                .clientRoleMappings(properties.resolveClientRoleMappings())
                 .includeUserRolesClaim(properties.getUser().isIncludeRolesClaim())
                 .includeScopes(properties.getUser().isIncludeScopes())
                 .mapUnmappedAppRoles(properties.getService().isMapUnmappedAppRoles())
