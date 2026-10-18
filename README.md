@@ -825,6 +825,11 @@ mvn -B verify
 Tests use locally generated RSA keys and WireMock for the JWKS, token endpoint and Microsoft Graph;
 no Entra tenant is needed. CI runs on Java 17 and 21.
 
+The build also produces JaCoCo coverage reports (`<module>/target/site/jacoco/`) and fails if a
+library module drops below its coverage minimum. CodeQL scans every pull request, and Dependabot
+proposes Maven and GitHub Actions updates weekly. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to
+contribute and [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+
 ## Roadmap
 
 See [CHANGELOG.md](CHANGELOG.md) for what is released. Planned next:
