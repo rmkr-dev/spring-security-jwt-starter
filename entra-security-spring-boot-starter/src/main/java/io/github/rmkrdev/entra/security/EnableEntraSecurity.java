@@ -8,7 +8,6 @@ import java.lang.annotation.Target;
 
 import org.springframework.context.annotation.AdviceMode;
 import org.springframework.context.annotation.Import;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 
 /**
  * Explicitly opts a service into Entra security.
@@ -16,7 +15,9 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
  * The starter's auto-configuration already secures the application. Adding this annotation also:
  * <ul>
  * <li>enables method security ({@code @Secured}, {@code @PreAuthorize}, {@code @RolesAllowed}) even if
- * {@code entra.security.method-security.enabled=false};</li>
+ * {@code entra.security.method-security.enabled=false}. In a WebFlux application it enables
+ * {@code @EnableReactiveMethodSecurity} instead, with {@code @Secured} and {@code @PreAuthorize} (and the
+ * other pre/post annotations) on methods returning {@code Mono} or {@code Flux};</li>
  * <li>preloads the security context at startup: the tenant signing keys (JWKS) are fetched eagerly so the
  * first request does not pay for it, and the effective configuration is logged;</li>
  * <li>optionally fails startup when the signing keys cannot be loaded ({@link #failOnJwksError()}).</li>
@@ -25,8 +26,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@EnableMethodSecurity(securedEnabled = true, jsr250Enabled = true)
-@Import(EntraSecurityPreloadConfiguration.class)
+@Import({ EntraMethodSecuritySelector.class, EntraSecurityPreloadConfiguration.class })
 public @interface EnableEntraSecurity {
 
     /**
@@ -41,7 +41,8 @@ public @interface EnableEntraSecurity {
     boolean failOnJwksError() default false;
 
     /**
-     * Advice mode for method security, as on {@code @EnableMethodSecurity}.
+     * Advice mode for method security, as on {@code @EnableMethodSecurity}. WebFlux applications always use
+     * proxies.
      */
     AdviceMode mode() default AdviceMode.PROXY;
 
