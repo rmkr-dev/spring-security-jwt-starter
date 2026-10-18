@@ -36,6 +36,11 @@ final class LazyMicrometerEntraSecurityObservations implements EntraSecurityObse
     }
 
     @Override
+    public void tokenAcquisition(String grant, String credentialType, boolean success, Duration duration) {
+        delegate().tokenAcquisition(grant, credentialType, success, duration);
+    }
+
+    @Override
     public void jwksRefresh(boolean success, Duration duration) {
         delegate().jwksRefresh(success, duration);
     }

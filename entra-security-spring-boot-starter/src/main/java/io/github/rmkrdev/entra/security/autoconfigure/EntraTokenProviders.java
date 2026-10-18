@@ -16,7 +16,9 @@ import io.github.rmkrdev.entra.security.core.token.ClientCertificateCredential;
 import io.github.rmkrdev.entra.security.core.token.ClientCredentialsTokenProvider;
 import io.github.rmkrdev.entra.security.core.token.ClientSecretCredential;
 import io.github.rmkrdev.entra.security.core.token.EntraCredential;
+import io.github.rmkrdev.entra.security.core.token.EntraOnBehalfOfTokenProvider;
 import io.github.rmkrdev.entra.security.core.token.EntraTokenProvider;
+import io.github.rmkrdev.entra.security.core.token.OnBehalfOfTokenProvider;
 import io.github.rmkrdev.entra.security.core.token.WorkloadIdentityCredential;
 
 /**
@@ -73,20 +75,44 @@ public class EntraTokenProviders {
      * type is {@code none}.
      */
     public EntraTokenProvider create(Credential credential) {
+        Credential effective = effective(credential);
+        boolean workload = effective.getType() == CredentialType.WORKLOAD_IDENTITY;
+        String clientId = firstText(effective.getClientId(), workload ? env("AZURE_CLIENT_ID") : null,
+                properties.getClientId());
+        return new ClientCredentialsTokenProvider(tokenEndpoint(effective), clientId, credential(effective),
+                restClient, properties.getCache().getTokenRefreshSkew(), clock, observations);
+    }
+
+    /**
+     * An on-behalf-of provider for the given credential (falling back to {@code entra.security.credential}).
+     * <p>
+     * The client id defaults to {@code entra.security.client-id}, not {@code AZURE_CLIENT_ID}: Entra only
+     * exchanges a token for the application it was issued to, so the federated credential of a workload
+     * identity has to be configured on this API's own app registration.
+     */
+    public EntraOnBehalfOfTokenProvider createOnBehalfOf(Credential credential) {
+        Credential effective = effective(credential);
+        String clientId = firstText(effective.getClientId(), properties.getClientId());
+        return new OnBehalfOfTokenProvider(tokenEndpoint(effective), clientId, credential(effective), restClient,
+                properties.getCache().getTokenRefreshSkew(), properties.getCache().getOnBehalfOfMaxEntries(), clock,
+                observations);
+    }
+
+    private Credential effective(Credential credential) {
         Credential effective = credential.getType() == CredentialType.NONE ? properties.getCredential() : credential;
         if (effective.getType() == CredentialType.NONE) {
             throw new IllegalStateException("No Entra credential configured: set entra.security.credential.type");
         }
+        return effective;
+    }
+
+    private URI tokenEndpoint(Credential effective) {
         boolean workload = effective.getType() == CredentialType.WORKLOAD_IDENTITY;
         String tenantId = firstText(effective.getTenantId(), workload ? env("AZURE_TENANT_ID") : null,
                 properties.getTenantId());
-        String clientId = firstText(effective.getClientId(), workload ? env("AZURE_CLIENT_ID") : null,
-                properties.getClientId());
         String authority = firstText(workload ? env("AZURE_AUTHORITY_HOST") : null,
                 properties.getAuthorityHost().toString());
-        URI tokenEndpoint = ClientCredentialsTokenProvider.tokenEndpoint(URI.create(authority), tenantId);
-        return new ClientCredentialsTokenProvider(tokenEndpoint, clientId, credential(effective), restClient,
-                properties.getCache().getTokenRefreshSkew(), clock, observations);
+        return ClientCredentialsTokenProvider.tokenEndpoint(URI.create(authority), tenantId);
     }
 
     private EntraCredential credential(Credential credential) {

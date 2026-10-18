@@ -596,10 +596,25 @@ public class EntraSecurityProperties {
         }
     }
 
-    /** A peer API this service calls with an app-only token. */
+    /** How an outbound client gets its tokens. */
+    public enum OutboundFlow {
+        /** App-only tokens with the client credentials grant (the default). */
+        CLIENT_CREDENTIALS,
+        /** Delegated tokens for the current user, exchanged with the on-behalf-of (jwt-bearer) grant. */
+        ON_BEHALF_OF
+    }
+
+    /** A peer API this service calls, with an app-only token or on behalf of the current user. */
     public static class OutboundClient {
 
-        /** Scope to request, for example api://{peer-client-id}/.default. */
+        /** Token flow: client-credentials (app-only) or on-behalf-of (as the calling user). */
+        @NotNull
+        private OutboundFlow flow = OutboundFlow.CLIENT_CREDENTIALS;
+
+        /**
+         * Scope to request: api://{peer-client-id}/.default for client-credentials; for on-behalf-of, the
+         * delegated scopes (space separated, for example api://{peer-client-id}/Orders.Read) or .default.
+         */
         @NotBlank(message = "must be set, for example api://<peer-client-id>/.default")
         private String scope;
 
@@ -609,6 +624,14 @@ public class EntraSecurityProperties {
         /** Credential for this client. Defaults to entra.security.credential. */
         @Valid
         private final Credential credential = new Credential();
+
+        public OutboundFlow getFlow() {
+            return flow;
+        }
+
+        public void setFlow(OutboundFlow flow) {
+            this.flow = flow;
+        }
 
         public String getScope() {
             return scope;
@@ -641,6 +664,18 @@ public class EntraSecurityProperties {
         /** How long before expiry an acquired outbound/Graph token is renewed. */
         @NotNull
         private Duration tokenRefreshSkew = Duration.ofMinutes(5);
+
+        /** Maximum number of on-behalf-of tokens cached per outbound client (one per user and scope). */
+        @Min(1)
+        private int onBehalfOfMaxEntries = 10_000;
+
+        public int getOnBehalfOfMaxEntries() {
+            return onBehalfOfMaxEntries;
+        }
+
+        public void setOnBehalfOfMaxEntries(int onBehalfOfMaxEntries) {
+            this.onBehalfOfMaxEntries = onBehalfOfMaxEntries;
+        }
 
         public Duration getJwksTtl() {
             return jwksTtl;

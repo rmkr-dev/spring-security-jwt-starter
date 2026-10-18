@@ -6,7 +6,7 @@ import java.time.Duration;
  * Hooks for optional metrics. The {@link #NO_OP} implementation does nothing, so token validation,
  * Graph lookups and token acquisition behave the same when Micrometer is not in use.
  * <p>
- * Cache hits are not reported: {@link #graphLookup}, {@link #tokenAcquisition} and {@link #jwksRefresh}
+ * Cache hits are not reported: {@link #graphLookup}, {@code tokenAcquisition} and {@link #jwksRefresh}
  * run only when this library actually calls Microsoft Graph, the Entra token endpoint or the JWKS URL.
  */
 public interface EntraSecurityObservations {
@@ -30,6 +30,12 @@ public interface EntraSecurityObservations {
     default void graphLookup(boolean success, Duration duration) {
     }
 
+    /** {@code grant} label of client-credentials token requests. */
+    String GRANT_CLIENT_CREDENTIALS = "client_credentials";
+
+    /** {@code grant} label of on-behalf-of (jwt-bearer) token requests. */
+    String GRANT_ON_BEHALF_OF = "on_behalf_of";
+
     /**
      * A client-credentials call to the Entra token endpoint.
      *
@@ -37,6 +43,20 @@ public interface EntraSecurityObservations {
      *                       {@code workload_identity} or {@code unknown}
      */
     default void tokenAcquisition(String credentialType, boolean success, Duration duration) {
+    }
+
+    /**
+     * A call to the Entra token endpoint for any grant. The default forwards client-credentials calls to
+     * {@link #tokenAcquisition(String, boolean, Duration)} and ignores the others, so existing
+     * implementations keep their meaning.
+     *
+     * @param grant          {@link #GRANT_CLIENT_CREDENTIALS} or {@link #GRANT_ON_BEHALF_OF}
+     * @param credentialType bounded label, as above
+     */
+    default void tokenAcquisition(String grant, String credentialType, boolean success, Duration duration) {
+        if (GRANT_CLIENT_CREDENTIALS.equals(grant)) {
+            tokenAcquisition(credentialType, success, duration);
+        }
     }
 
     /**

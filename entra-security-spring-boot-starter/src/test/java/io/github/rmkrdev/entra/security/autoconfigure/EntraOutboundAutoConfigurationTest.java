@@ -22,10 +22,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+
+import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties.OutboundFlow;
+import io.github.rmkrdev.entra.security.core.web.InteractionRequiredExceptionHandler;
+import io.github.rmkrdev.entra.security.core.web.server.ServerInteractionRequiredExceptionHandler;
 
 class EntraOutboundAutoConfigurationTest {
 
@@ -97,6 +106,107 @@ class EntraOutboundAutoConfigurationTest {
                 .withRequestBody(containing("client_assertion=projected-sa-token"))
                 .withRequestBody(containing("client_id=77777777-7777-7777-7777-777777777777")));
         wireMock.verify(getRequestedFor(urlEqualTo("/peer")).withHeader("Authorization", equalTo("Bearer wi-token")));
+    }
+
+    @Test
+    void onBehalfOfClientExchangesTheCurrentUsersToken() {
+        wireMock.stubFor(post("/" + API_TENANT + "/oauth2/v2.0/token")
+                .withRequestBody(containing("requested_token_use=on_behalf_of"))
+                .willReturn(okJson("{\"expires_in\":3600,\"access_token\":\"obo-token\"}")));
+        runner.withPropertyValues("entra.security.credential.type=client-secret",
+                "entra.security.credential.client-secret=top-secret",
+                "entra.security.outbound.clients.profile.flow=on-behalf-of",
+                "entra.security.outbound.clients.profile.scope=api://profile/Profile.Read api://profile/Profile.Write",
+                "entra.security.outbound.clients.profile.base-url=" + wireMock.baseUrl())
+                .run(context -> {
+                    EntraOutboundClients outbound = context.getBean(EntraOutboundClients.class);
+                    assertThat(outbound.flow("profile")).isEqualTo(OutboundFlow.ON_BEHALF_OF);
+                    assertThatThrownBy(() -> outbound.tokenProvider("profile"))
+                            .hasMessageContaining("on-behalf-of");
+                    Jwt user = Jwt.withTokenValue("incoming-user-token").header("alg", "RS256")
+                            .claim("oid", "u1").claim("tid", API_TENANT).claim("scp", "access_as_user").build();
+                    SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(user));
+                    try {
+                        RestClient client = RestClient.builder().baseUrl(outbound.baseUrl("profile"))
+                                .requestInterceptor(outbound.interceptor("profile")).build();
+                        assertThat(client.get().uri("/peer").retrieve().body(String.class)).isEqualTo("pong");
+                        String viaWebClient = WebClient.builder().baseUrl(outbound.baseUrl("profile"))
+                                .filter(EntraWebClientSupport.filter(outbound, "profile")).build()
+                                .get().uri("/peer").retrieve().bodyToMono(String.class).block();
+                        assertThat(viaWebClient).isEqualTo("pong");
+                        assertThat(outbound.token("profile").value()).isEqualTo("obo-token");
+                    }
+                    finally {
+                        SecurityContextHolder.clearContext();
+                    }
+                    assertThat(outbound.token("profile", user).value()).isEqualTo("obo-token");
+                });
+        wireMock.verify(1, postRequestedFor(urlEqualTo("/" + API_TENANT + "/oauth2/v2.0/token"))
+                .withRequestBody(containing("assertion=incoming-user-token"))
+                .withRequestBody(containing("client_secret=top-secret"))
+                .withRequestBody(containing("client_id=22222222-2222-2222-2222-222222222222")));
+        wireMock.verify(2, getRequestedFor(urlEqualTo("/peer")).withHeader("Authorization",
+                equalTo("Bearer obo-token")));
+    }
+
+    @Test
+    void onBehalfOfUsesTheApiClientIdEvenWithWorkloadIdentity(@TempDir Path dir) throws Exception {
+        Path tokenFile = dir.resolve("azure-identity-token");
+        Files.writeString(tokenFile, "projected-sa-token");
+        wireMock.stubFor(post("/" + WI_TENANT + "/oauth2/v2.0/token")
+                .withRequestBody(containing("requested_token_use=on_behalf_of"))
+                .willReturn(okJson("{\"expires_in\":3600,\"access_token\":\"obo-wi\"}")));
+        runner.withPropertyValues("entra.security.outbound.clients.profile.flow=on-behalf-of",
+                "entra.security.outbound.clients.profile.scope=api://profile/.default",
+                "entra.security.outbound.clients.profile.credential.type=workload-identity",
+                "AZURE_FEDERATED_TOKEN_FILE=" + tokenFile, "AZURE_CLIENT_ID=77777777-7777-7777-7777-777777777777",
+                "AZURE_TENANT_ID=" + WI_TENANT)
+                .run(context -> {
+                    Jwt user = Jwt.withTokenValue("incoming").header("alg", "RS256")
+                            .claim("oid", "u1").claim("scp", "access_as_user").build();
+                    assertThat(context.getBean(EntraOutboundClients.class).token("profile", user).value())
+                            .isEqualTo("obo-wi");
+                });
+        wireMock.verify(postRequestedFor(urlEqualTo("/" + WI_TENANT + "/oauth2/v2.0/token"))
+                .withRequestBody(containing("client_assertion=projected-sa-token"))
+                .withRequestBody(containing("client_id=22222222-2222-2222-2222-222222222222")));
+    }
+
+    @Test
+    void clientCredentialsClientRefusesOnBehalfOfUse() {
+        runner.withPropertyValues("entra.security.credential.type=client-secret",
+                "entra.security.credential.client-secret=s",
+                "entra.security.outbound.clients.orders.scope=api://orders/.default")
+                .run(context -> {
+                    EntraOutboundClients outbound = context.getBean(EntraOutboundClients.class);
+                    assertThat(outbound.flow("orders")).isEqualTo(OutboundFlow.CLIENT_CREDENTIALS);
+                    assertThatThrownBy(() -> outbound.onBehalfOfTokenProvider("orders"))
+                            .hasMessageContaining("flow=on-behalf-of");
+                });
+    }
+
+    @Test
+    void interactionRequiredHandlersAreRegisteredForEachWebStack() {
+        String[] props = { "entra.security.tenant-id=" + API_TENANT,
+                "entra.security.client-id=22222222-2222-2222-2222-222222222222" };
+        new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(EntraOutboundAutoConfiguration.class))
+                .withPropertyValues(props)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(InteractionRequiredExceptionHandler.class);
+                    assertThat(context).doesNotHaveBean(ServerInteractionRequiredExceptionHandler.class);
+                });
+        new ReactiveWebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(EntraOutboundAutoConfiguration.class))
+                .withPropertyValues(props)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(ServerInteractionRequiredExceptionHandler.class);
+                    assertThat(context).doesNotHaveBean(InteractionRequiredExceptionHandler.class);
+                });
+        runner.run(context -> {
+            assertThat(context).doesNotHaveBean(InteractionRequiredExceptionHandler.class);
+            assertThat(context).doesNotHaveBean(ServerInteractionRequiredExceptionHandler.class);
+        });
     }
 
     @Test

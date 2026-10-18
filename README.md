@@ -5,7 +5,8 @@
 
 A reusable Spring Boot 3.x (Java 17 and 21) security starter for **Microsoft Entra ID** (Azure AD).
 It works with app registrations and enterprise applications, for **users** (delegated tokens) and
-**services** (app-only, client-credentials tokens), on Spring MVC and on **WebFlux**.
+**services** (app-only, client-credentials tokens), on Spring MVC and on **WebFlux**, and it calls downstream APIs
+as the service or **on behalf of the user**.
 
 A service adds one dependency, supplies configuration (ConfigMap, env or properties), and writes:
 
@@ -23,6 +24,7 @@ public List<Order> orders() { ... }
 - [User flow](#user-flow)
 - [Service flow](#service-flow)
 - [Calling other services](#calling-other-services)
+- [Calling APIs as the user (on-behalf-of)](#calling-apis-as-the-user-on-behalf-of)
 - [Reactive (WebFlux)](#reactive-webflux)
 - [Entra ID setup](#entra-id-setup)
 - [Kubernetes](#kubernetes)
@@ -38,9 +40,9 @@ public List<Order> orders() { ... }
 
 | Module | Purpose |
 | --- | --- |
-| `entra-security-core` | Framework-level pieces: JWT decoder and validators, user/service classification, authority mapping, Graph group lookup, token acquisition (secret, certificate, workload identity), outbound interceptors, problem-details handlers, `EntraPrincipal`. |
+| `entra-security-core` | Framework-level pieces: JWT decoder and validators, user/service classification, authority mapping, Graph group lookup, token acquisition (secret, certificate, workload identity) with client credentials and on-behalf-of, outbound interceptors, problem-details handlers, `EntraPrincipal`. |
 | `entra-security-spring-boot-starter` | Auto-configuration (`AutoConfiguration.imports`), `entra.security.*` properties with validation, the default `SecurityFilterChain` (servlet) or `SecurityWebFilterChain` (WebFlux), `@EnableEntraSecurity`, `EntraOutboundClients`, optional Actuator health and Micrometer metrics. |
-| `entra-security-test` | Test support for consuming services: an in-process mock Entra authority (JWKS, token endpoint, Graph), signed test tokens, `@AutoConfigureEntraMockAuthority`, `@WithMockEntraUser` and `@WithMockEntraService`. |
+| `entra-security-test` | Test support for consuming services: an in-process mock Entra authority (JWKS, token endpoint with client credentials and on-behalf-of, Graph), signed test tokens, `@AutoConfigureEntraMockAuthority`, `@WithMockEntraUser` and `@WithMockEntraService`. |
 | `sample-api` | Example service with user and service endpoints, an outbound client and Kubernetes manifests (`sample-api/k8s`). |
 | `sample-reactive-api` | The same service on WebFlux (no servlet API on the classpath), tested with `WebTestClient`. |
 
@@ -52,7 +54,7 @@ public List<Order> orders() { ... }
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-spring-boot-starter</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
 </dependency>
 ```
 
@@ -244,6 +246,87 @@ Tokens are cached per scope and renewed `cache.token-refresh-skew` before expiry
 | `workload-identity` | `federated-token-file` (optional) | AKS Workload Identity. Uses `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_AUTHORITY_HOST` from the webhook unless set explicitly. The file is re-read on each token request. |
 
 Each outbound client can override `credential.*`; otherwise it uses `entra.security.credential`.
+
+## Calling APIs as the user (on-behalf-of)
+
+When your API has to call another API **as the signed-in user** (so the downstream API sees the user, their
+scopes and their permissions, not your service), use the on-behalf-of (OBO) flow. The starter exchanges the
+user's incoming token for a downstream token with Entra's `jwt-bearer` grant, authenticated with your API's
+credential (client secret, certificate or workload identity), and adds it to the outgoing request.
+
+```yaml
+entra:
+  security:
+    credential:
+      type: workload-identity        # or client-secret / certificate
+    outbound:
+      clients:
+        profile-api:
+          flow: on-behalf-of
+          scope: api://eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee/Profile.Read   # delegated scopes, or .../.default
+          base-url: http://profile-api.profile.svc.cluster.local
+```
+
+The same helpers as for app-only clients pick the flow from configuration:
+
+```java
+// Spring MVC: RestClient (the user comes from the SecurityContextHolder of the request thread)
+RestClient profile = builder.baseUrl(outbound.baseUrl("profile-api"))
+        .requestInterceptor(outbound.interceptor("profile-api"))
+        .build();
+
+// WebFlux: WebClient (the user comes from the Reactor context, so keep the call in the request's chain)
+WebClient profile = webClientBuilder.baseUrl(outbound.baseUrl("profile-api"))
+        .filter(EntraWebClientSupport.filter(outbound, "profile-api"))
+        .build();
+
+// Or get the token yourself
+AccessToken token = outbound.token("profile-api");              // current user
+AccessToken token = outbound.token("profile-api", userJwt);     // a given user token
+```
+
+How it behaves:
+
+- **Request**: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, `assertion=<incoming token>`,
+  `requested_token_use=on_behalf_of`, the configured `scope` and the client authentication of the credential.
+  The client id is `entra.security.client-id` (or the client's `credential.client-id`), because Entra only
+  exchanges a token for the application it was issued to. With workload identity, add the federated
+  credential to this API's own app registration.
+- **Cache**: one token per user and scope. The key is a SHA-256 hash of the user's `oid` (or `sub`), `tid` and
+  the normalized scope, so neither the incoming token nor user ids are stored as keys. A user's next request
+  reuses the token even though its incoming token is different. Tokens are renewed
+  `cache.token-refresh-skew` before they expire (at most halfway through their lifetime); if Entra cannot be
+  reached during a renewal, the cached token is used until it actually expires. The cache holds at most
+  `cache.on-behalf-of-max-entries` tokens per client.
+- **Only user tokens**: a request authenticated with an app-only token is refused before anything is sent
+  (`EntraTokenAcquisitionException`, `error=invalid_request`). Use a client-credentials client for service callers.
+- **Consent and Conditional Access**: when Entra answers that the user has not consented (`AADSTS65001`) or must
+  satisfy MFA or another policy (`interaction_required`, a claims challenge), the call fails with
+  `EntraInteractionRequiredException`. Thrown from a controller (servlet or WebFlux), it becomes a **403**
+  problem document that the client app can act on:
+
+  ```http
+  HTTP/1.1 403 Forbidden
+  WWW-Authenticate: Bearer error="consent_required", error_description="..."
+  Content-Type: application/problem+json
+
+  {"type":"about:blank","title":"Forbidden","status":403,
+   "detail":"A downstream API needs consent that the user has not granted; sign in again interactively and consent",
+   "instance":"/api/profile","error":"consent_required","scope":"api://eeeeeeee-.../Profile.Read"}
+  ```
+
+  For a Conditional Access challenge, `error` is `interaction_required` and the body carries `claims`; the
+  `WWW-Authenticate` header carries it base64-encoded as `claims="..."`, which MSAL clients pass to the next
+  interactive sign-in. Other failures (`invalid_client`, Entra unreachable) stay `EntraTokenAcquisitionException`
+  and surface as server errors.
+- **Threads**: the user token is read from the security context, so call OBO clients while handling the
+  request. On another thread (`@Async`, your own executor), pass the token with `outbound.token(name, jwt)`.
+- Token-endpoint calls are counted in `entra.security.token.acquisitions` with `grant=on_behalf_of`.
+
+Entra setup: the client app (SPA, mobile app) requests a token for **your** API; your app registration has
+delegated API permissions to the downstream API, and the user or an admin has consented to them (list the client
+app under `knownClientApplications` to get combined consent). See
+[the Microsoft OBO documentation](https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow).
 
 ## Reactive (WebFlux)
 
@@ -467,11 +550,13 @@ names the property.
 | `credential.client-secret` | — | Client secret. |
 | `credential.certificate-path` / `certificate-password` | — | PEM or PKCS#12 certificate. |
 | `credential.federated-token-file` | `$AZURE_FEDERATED_TOKEN_FILE` | Workload identity token file. |
-| `outbound.clients.<name>.scope` | **required** | Scope for the peer, e.g. `api://<peer>/.default`. |
+| `outbound.clients.<name>.flow` | `client-credentials` | `client-credentials` (app-only) or `on-behalf-of` (as the calling user). |
+| `outbound.clients.<name>.scope` | **required** | Scope for the peer: `api://<peer>/.default`, or delegated scopes such as `api://<peer>/Orders.Read` for `on-behalf-of`. |
 | `outbound.clients.<name>.base-url` | — | Peer base URL. |
 | `outbound.clients.<name>.credential.*` | `entra.security.credential` | Per-client credential. |
 | `cache.jwks-ttl` | `15m` | JWKS cache lifetime (unknown `kid`s trigger a rate-limited refresh). |
 | `cache.token-refresh-skew` | `5m` | Renew acquired tokens this long before expiry. |
+| `cache.on-behalf-of-max-entries` | `10000` | On-behalf-of tokens cached per outbound client (users × scopes). |
 | `http.connect-timeout` / `read-timeout` | `5s` / `10s` | Timeouts for JWKS, token and Graph calls. |
 | `method-security.enabled` | `true` | Enable `@Secured`/`@PreAuthorize`/`@RolesAllowed` (on WebFlux: `@Secured`/`@PreAuthorize`). |
 | `logging.log-claims` | `false` | Log a privacy-safe claim summary at DEBUG. |
@@ -535,7 +620,7 @@ id is ever a tag value.
 | `entra.security.jwt.authentications` | counter | `result` (`success`/`failure`), `reason` |
 | `entra.security.jwks.refreshes` | timer | `result` |
 | `entra.security.graph.lookups` | timer | `result` |
-| `entra.security.token.acquisitions` | timer | `result`, `credential` (`client_secret`, `certificate`, `workload_identity`) |
+| `entra.security.token.acquisitions` | timer | `result`, `credential` (`client_secret`, `certificate`, `workload_identity`), `grant` (`client_credentials`, `on_behalf_of`) |
 
 `reason` on a successful authentication is `none`. Failures use `missing`, `expired`,
 `not_yet_valid`, `invalid_issuer`, `invalid_audience`, `invalid_tenant`, `missing_claims`,
@@ -558,9 +643,10 @@ The Graph health probe is not a group lookup and does not increment `entra.secur
   ```
 
 - Replace any bean (`JwtDecoder`, `EntraAuthorityMapper`, `GroupMembershipResolver`,
-  `EntraJwtAuthenticationConverter`, the problem-details handlers): they are all
-  `@ConditionalOnMissingBean`. On WebFlux the same goes for `ReactiveJwtDecoder`,
-  `ReactiveGroupMembershipResolver`, `ReactiveEntraJwtAuthenticationConverter` and the `Server*` handlers.
+  `EntraJwtAuthenticationConverter`, the problem-details handlers, `InteractionRequiredExceptionHandler`): they
+  are all `@ConditionalOnMissingBean`. On WebFlux the same goes for `ReactiveJwtDecoder`,
+  `ReactiveGroupMembershipResolver`, `ReactiveEntraJwtAuthenticationConverter`, the `Server*` handlers and
+  `ServerInteractionRequiredExceptionHandler`.
 
 ## Testing your service
 
@@ -570,7 +656,7 @@ Add the test module next to the starter:
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-test</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -638,6 +724,36 @@ class OrderApiTest {
 
 The authority also serves the token endpoint, so outbound clients and the Graph client get tokens without
 any extra stubbing. Use `EntraMockAuthority.start()` directly (and close it) when you are not in a Spring test.
+
+### On-behalf-of calls
+
+The mock token endpoint also answers the on-behalf-of grant. It checks the assertion like Entra does (signed by
+the mock authority, unexpired, a user token, issued to the requesting `client_id`) and returns a delegated token
+for the same user: `aud` is the resource of the requested scope, `scp` the scope names, `azp` your API, and
+`oid`, `sub`, `name` and `preferred_username` copied from the user's token. Point the downstream base URL at a
+stub and assert on what arrives:
+
+```java
+@Test
+void profileIsReadAsTheUser() throws Exception {
+    mvc.perform(get("/api/profile").with(bearer(tokens.user().objectId(USER_OID))))
+       .andExpect(status().isOk());
+    assertThat(authority.onBehalfOfRequests()).isEqualTo(1);
+}
+
+@Test
+void missingConsentIsA403() throws Exception {
+    authority.requireConsent("api://profile-api");                 // a scope or a whole resource
+    mvc.perform(get("/api/profile").with(bearer(tokens.user())))
+       .andExpect(status().isForbidden())
+       .andExpect(jsonPath("$.error").value("consent_required"));
+}
+```
+
+`requireInteraction(scopeOrResource, claims)` answers `interaction_required` with a claims challenge,
+`onBehalfOfTokenLifetime(...)` shortens token lifetimes for refresh tests, and `onBehalfOfRequestForms()` returns
+the received forms with the assertion and secrets masked. `reset()` clears all of it. On-behalf-of needs a real
+token: `@WithMockEntraUser` has none to exchange, so use `bearer(...)` for these tests.
 
 ### No token at all
 
@@ -713,8 +829,7 @@ no Entra tenant is needed. CI runs on Java 17 and 21.
 
 See [CHANGELOG.md](CHANGELOG.md) for what is released. Planned next:
 
-- Publishing to Maven Central (sources, javadoc, signing) and a tagged release.
-- On-behalf-of (OBO) flow for calling downstream APIs as the user.
+- Publishing to Maven Central (sources, javadoc, signing).
 - Optional compact env-var syntax for role mappings.
 - Encrypted PEM keys and Key Vault-backed certificates.
 

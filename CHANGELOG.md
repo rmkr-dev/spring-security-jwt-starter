@@ -6,6 +6,44 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-18
+
+### Added
+
+- On-behalf-of (OBO) flow for calling downstream APIs as the signed-in user:
+  - `OnBehalfOfTokenProvider` (core): exchanges the incoming user token with Entra's
+    `urn:ietf:params:oauth:grant-type:jwt-bearer` grant (`requested_token_use=on_behalf_of`), authenticated with
+    the configured credential: client secret, certificate or workload identity.
+  - Tokens are cached per user and scope under a SHA-256 hash of `oid` (or `sub`), `tid` and the normalized
+    scope, renewed `cache.token-refresh-skew` before expiry, and bounded by `cache.on-behalf-of-max-entries`
+    (default 10000). A failed renewal keeps using the cached token until it expires, unless Entra asks for a
+    user interaction.
+  - App-only callers are refused before any request is sent.
+  - `EntraInteractionRequiredException` for missing consent (`AADSTS65001`, `consent_required`) and
+    Conditional Access or MFA challenges (`interaction_required`, claims challenge), with the scope, `suberror`,
+    `AADSTS` codes and claims.
+  - Outbound helpers: `EntraOnBehalfOfInterceptor` for `RestClient`/`RestTemplate` (user from the
+    `SecurityContextHolder`) and `EntraOnBehalfOfExchangeFilterFunction` for `WebClient` (user from the Reactor
+    context, or the subscribing thread in servlet applications). `EntraUserTokens` finds the current user token.
+  - `entra.security.outbound.clients.<name>.flow=on-behalf-of`: `EntraOutboundClients.interceptor(...)`,
+    `EntraWebClientSupport.filter(...)` and `token(...)` follow the configured flow; `token(name, jwt)` and
+    `onBehalfOfTokenProvider(name)` for explicit use.
+  - `InteractionRequiredExceptionHandler` (Spring MVC) and `ServerInteractionRequiredExceptionHandler` (WebFlux),
+    auto-configured: a 403 `application/problem+json` response with `error` `consent_required` or
+    `interaction_required`, the `scope` and `claims`, and a matching `WWW-Authenticate` header.
+- `entra-security-test`: the mock token endpoint serves the on-behalf-of grant (assertion signature, expiry,
+  audience and user-token checks, delegated token for the same user), with `requireConsent(...)`,
+  `requireInteraction(...)`, `onBehalfOfTokenLifetime(...)`, `onBehalfOfRequests()` and
+  `onBehalfOfRequestForms()`.
+- README section "Calling APIs as the user (on-behalf-of)" and on-behalf-of testing notes.
+
+### Changed
+
+- `entra.security.token.acquisitions` has a `grant` tag (`client_credentials` or `on_behalf_of`).
+  `EntraSecurityObservations` gained `tokenAcquisition(grant, credentialType, success, duration)`; its default
+  forwards client-credentials calls to the existing method, so custom implementations keep working.
+- Client-credentials and on-behalf-of requests share one token-endpoint client; error messages are unchanged.
+
 ## [0.4.0] - 2026-10-18
 
 ### Added
@@ -113,7 +151,8 @@ All notable changes to this project are documented here. The format follows
 - Tests against locally generated RSA keys and WireMock (JWKS, token endpoint, Graph); GitHub Actions on
   Java 17 and 21.
 
-[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.1.0...v0.2.0
