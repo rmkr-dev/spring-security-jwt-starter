@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties.Credential;
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties.CredentialType;
+import io.github.rmkrdev.entra.security.autoconfigure.keyvault.KeyVaultCredentialFactory;
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.token.ClientCertificateCredential;
 import io.github.rmkrdev.entra.security.core.token.ClientCredentialsTokenProvider;
@@ -35,6 +36,7 @@ public class EntraTokenProviders {
     private final RestClient restClient;
     private final Clock clock;
     private final EntraSecurityObservations observations;
+    private final KeyVaultCredentialFactory keyVaultCredentials;
 
     public EntraTokenProviders(EntraSecurityProperties properties, Environment environment) {
         this(properties, environment, defaultRestClient(properties), Clock.systemUTC());
@@ -50,11 +52,35 @@ public class EntraTokenProviders {
      */
     public EntraTokenProviders(EntraSecurityProperties properties, Environment environment, RestClient restClient,
             Clock clock, EntraSecurityObservations observations) {
+        this(properties, environment, restClient, clock, observations, null);
+    }
+
+    /**
+     * @param observations        token-acquisition hook forwarded to each provider; {@code null} is a no-op
+     * @param keyVaultCredentials creates {@code key-vault-certificate} credentials; {@code null} when the Azure
+     *                            SDK is not on the classpath, in which case configuring that type fails here
+     */
+    public EntraTokenProviders(EntraSecurityProperties properties, Environment environment, RestClient restClient,
+            Clock clock, EntraSecurityObservations observations, KeyVaultCredentialFactory keyVaultCredentials) {
         this.properties = properties;
         this.environment = environment;
         this.restClient = restClient;
         this.clock = clock;
         this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
+        this.keyVaultCredentials = keyVaultCredentials;
+        if (keyVaultCredentials == null && usesKeyVault(properties)) {
+            throw new IllegalStateException(KEY_VAULT_MISSING);
+        }
+    }
+
+    static final String KEY_VAULT_MISSING = "credential.type=key-vault-certificate needs the Azure SDK on the "
+            + "classpath: add com.azure:azure-identity and com.azure:azure-security-keyvault-secrets (or "
+            + "com.azure:azure-security-keyvault-certificates)";
+
+    private static boolean usesKeyVault(EntraSecurityProperties properties) {
+        return properties.getCredential().getType() == CredentialType.KEY_VAULT_CERTIFICATE
+                || properties.getOutbound().getClients().values().stream()
+                        .anyMatch(c -> c.getCredential().getType() == CredentialType.KEY_VAULT_CERTIFICATE);
     }
 
     /** HTTP client that uses {@code entra.security.http} connect and read timeouts. */
@@ -122,6 +148,11 @@ public class EntraTokenProviders {
             case CERTIFICATE:
                 return ClientCertificateCredential.fromFile(Path.of(credential.getCertificatePath()),
                         credential.getCertificatePassword());
+            case KEY_VAULT_CERTIFICATE:
+                if (keyVaultCredentials == null) {
+                    throw new IllegalStateException(KEY_VAULT_MISSING);
+                }
+                return keyVaultCredentials.create(credential.getKeyVault());
             case WORKLOAD_IDENTITY:
                 String file = firstText(credential.getFederatedTokenFile(),
                         env(WorkloadIdentityCredential.TOKEN_FILE_ENV));

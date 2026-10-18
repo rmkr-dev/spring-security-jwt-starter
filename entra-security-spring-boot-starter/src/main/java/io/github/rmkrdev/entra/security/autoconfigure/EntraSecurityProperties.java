@@ -570,13 +570,18 @@ public class EntraSecurityProperties implements Validator {
         /** Certificate (PEM with a PKCS#8 key, optionally encrypted, or PKCS#12). */
         CERTIFICATE,
         /** Azure Workload Identity federated token file (AKS). */
-        WORKLOAD_IDENTITY
+        WORKLOAD_IDENTITY,
+        /**
+         * Certificate stored in Azure Key Vault, read with managed identity or workload identity and reloaded
+         * periodically. Needs azure-identity and azure-security-keyvault-secrets (or -certificates).
+         */
+        KEY_VAULT_CERTIFICATE
     }
 
     /** A confidential-client credential. */
     public static class Credential {
 
-        /** Credential type: none, client-secret, certificate or workload-identity. */
+        /** Credential type: none, client-secret, certificate, workload-identity or key-vault-certificate. */
         @NotNull
         private CredentialType type = CredentialType.NONE;
 
@@ -601,6 +606,10 @@ public class EntraSecurityProperties implements Validator {
         /** Federated token file, for type workload-identity. Defaults to AZURE_FEDERATED_TOKEN_FILE. */
         private String federatedTokenFile;
 
+        /** Key Vault certificate, for type key-vault-certificate. */
+        @Valid
+        private final KeyVault keyVault = new KeyVault();
+
         @AssertTrue(message = "credential.client-secret is required when credential.type is client-secret")
         public boolean isClientSecretPresent() {
             return type != CredentialType.CLIENT_SECRET || hasText(clientSecret);
@@ -609,6 +618,23 @@ public class EntraSecurityProperties implements Validator {
         @AssertTrue(message = "credential.certificate-path is required when credential.type is certificate")
         public boolean isCertificatePathPresent() {
             return type != CredentialType.CERTIFICATE || hasText(certificatePath);
+        }
+
+        @AssertTrue(message = "credential.key-vault.vault-url and credential.key-vault.certificate-name are required "
+                + "when credential.type is key-vault-certificate")
+        public boolean isKeyVaultCertificateConfigured() {
+            return type != CredentialType.KEY_VAULT_CERTIFICATE
+                    || (keyVault.getVaultUrl() != null && hasText(keyVault.getCertificateName()));
+        }
+
+        @AssertTrue(message = "credential.key-vault.vault-url must be an https URL, for example "
+                + "https://<vault-name>.vault.azure.net")
+        public boolean isKeyVaultUrlHttps() {
+            return keyVault.getVaultUrl() == null || "https".equalsIgnoreCase(keyVault.getVaultUrl().getScheme());
+        }
+
+        public KeyVault getKeyVault() {
+            return keyVault;
         }
 
         private static boolean hasText(String value) {
@@ -669,6 +695,81 @@ public class EntraSecurityProperties implements Validator {
 
         public void setFederatedTokenFile(String federatedTokenFile) {
             this.federatedTokenFile = federatedTokenFile;
+        }
+    }
+
+    /** A client certificate kept in Azure Key Vault. */
+    public static class KeyVault {
+
+        /** Vault URL, for example https://my-vault.vault.azure.net. */
+        private URI vaultUrl;
+
+        /** Name of the Key Vault certificate. Its private key must be exportable (the default). */
+        private String certificateName;
+
+        /** Certificate version. Defaults to the latest version, so rotations are picked up on refresh. */
+        private String certificateVersion;
+
+        /** How often the certificate is reloaded from Key Vault. */
+        @NotNull
+        private Duration refreshInterval = Duration.ofHours(1);
+
+        /** How long to wait before retrying after a failed reload. The cached certificate is used meanwhile. */
+        @NotNull
+        private Duration retryInterval = Duration.ofMinutes(1);
+
+        /**
+         * Client id of the user-assigned managed identity or workload identity used to read the vault. Defaults
+         * to AZURE_CLIENT_ID (set by the AKS workload identity webhook) or the system-assigned identity.
+         */
+        private String identityClientId;
+
+        public URI getVaultUrl() {
+            return vaultUrl;
+        }
+
+        public void setVaultUrl(URI vaultUrl) {
+            this.vaultUrl = vaultUrl;
+        }
+
+        public String getCertificateName() {
+            return certificateName;
+        }
+
+        public void setCertificateName(String certificateName) {
+            this.certificateName = certificateName;
+        }
+
+        public String getCertificateVersion() {
+            return certificateVersion;
+        }
+
+        public void setCertificateVersion(String certificateVersion) {
+            this.certificateVersion = certificateVersion;
+        }
+
+        public Duration getRefreshInterval() {
+            return refreshInterval;
+        }
+
+        public void setRefreshInterval(Duration refreshInterval) {
+            this.refreshInterval = refreshInterval;
+        }
+
+        public Duration getRetryInterval() {
+            return retryInterval;
+        }
+
+        public void setRetryInterval(Duration retryInterval) {
+            this.retryInterval = retryInterval;
+        }
+
+        public String getIdentityClientId() {
+            return identityClientId;
+        }
+
+        public void setIdentityClientId(String identityClientId) {
+            this.identityClientId = identityClientId;
         }
     }
 
