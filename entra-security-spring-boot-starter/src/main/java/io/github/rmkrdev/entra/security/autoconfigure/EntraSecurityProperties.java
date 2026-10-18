@@ -12,7 +12,12 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.Errors;
+import org.springframework.validation.Validator;
 import org.springframework.validation.annotation.Validated;
+
+import io.github.rmkrdev.entra.security.core.authority.CompactRoleMappings;
+import io.github.rmkrdev.entra.security.core.authority.CompactRoleMappings.KeyType;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
@@ -29,7 +34,7 @@ import jakarta.validation.constraints.NotNull;
  */
 @Validated
 @ConfigurationProperties(prefix = EntraSecurityProperties.PREFIX)
-public class EntraSecurityProperties {
+public class EntraSecurityProperties implements Validator {
 
     public static final String PREFIX = "entra.security";
 
@@ -82,6 +87,22 @@ public class EntraSecurityProperties {
 
     /** Calling client id (azp/appid) to roles. Also the allow-list when service.require-known-client is true. */
     private Map<String, List<String>> clientRoleMappings = new LinkedHashMap<>();
+
+    /**
+     * Group mappings on one line, merged with group-role-mappings: {@code <group>=<ROLE>[|<ROLE>...]} entries
+     * separated by ';' or ','. Suits environment variables (ENTRA_SECURITY_GROUPROLEMAPPINGSCOMPACT) and
+     * ConfigMap scalars.
+     */
+    private String groupRoleMappingsCompact;
+
+    /** App role mappings on one line, merged with app-role-mappings: {@code <app-role>=<ROLE>[|<ROLE>...];...}. */
+    private String appRoleMappingsCompact;
+
+    /**
+     * Client mappings on one line, merged with client-role-mappings: {@code <client-id>=<ROLE>[|<ROLE>...];...}.
+     * Client ids must be GUIDs.
+     */
+    private String clientRoleMappingsCompact;
 
     @Valid
     private final User user = new User();
@@ -146,7 +167,51 @@ public class EntraSecurityProperties {
         return requireTenantMatch && tenantId != null && GUID.matcher(tenantId).matches() ? tenantId : null;
     }
 
+    /** Group mappings from group-role-mappings and group-role-mappings-compact combined. */
+    public Map<String, List<String>> resolveGroupRoleMappings() {
+        return CompactRoleMappings.merge(groupRoleMappings, CompactRoleMappings.parse(
+                PREFIX + ".group-role-mappings-compact", groupRoleMappingsCompact, KeyType.GROUP));
+    }
+
+    /** App role mappings from app-role-mappings and app-role-mappings-compact combined. */
+    public Map<String, List<String>> resolveAppRoleMappings() {
+        return CompactRoleMappings.merge(appRoleMappings, CompactRoleMappings.parse(
+                PREFIX + ".app-role-mappings-compact", appRoleMappingsCompact, KeyType.APP_ROLE));
+    }
+
+    /** Client mappings (and allow-list) from client-role-mappings and client-role-mappings-compact combined. */
+    public Map<String, List<String>> resolveClientRoleMappings() {
+        return CompactRoleMappings.merge(clientRoleMappings, CompactRoleMappings.parse(
+                PREFIX + ".client-role-mappings-compact", clientRoleMappingsCompact, KeyType.CLIENT_ID));
+    }
+
     // ---------------------------------------------------------------- cross-field validation
+
+    @Override
+    public boolean supports(Class<?> type) {
+        return EntraSecurityProperties.class.isAssignableFrom(type);
+    }
+
+    /**
+     * Checks the compact role mappings, reporting the entry that is wrong and why. Called by Spring Boot
+     * when the properties are bound, alongside the bean validation constraints.
+     */
+    @Override
+    public void validate(Object target, Errors errors) {
+        EntraSecurityProperties properties = (EntraSecurityProperties) target;
+        validateCompact(errors, "groupRoleMappingsCompact", properties::resolveGroupRoleMappings);
+        validateCompact(errors, "appRoleMappingsCompact", properties::resolveAppRoleMappings);
+        validateCompact(errors, "clientRoleMappingsCompact", properties::resolveClientRoleMappings);
+    }
+
+    private static void validateCompact(Errors errors, String field, Runnable resolve) {
+        try {
+            resolve.run();
+        }
+        catch (IllegalArgumentException ex) {
+            errors.rejectValue(field, "invalidCompactRoleMappings", ex.getMessage());
+        }
+    }
 
     @AssertTrue(message = "entra.security.tenant-id must be a single tenant: 'common', 'organizations' and "
             + "'consumers' are not supported")
@@ -275,6 +340,30 @@ public class EntraSecurityProperties {
 
     public void setAppRoleMappings(Map<String, List<String>> appRoleMappings) {
         this.appRoleMappings = appRoleMappings;
+    }
+
+    public String getGroupRoleMappingsCompact() {
+        return groupRoleMappingsCompact;
+    }
+
+    public void setGroupRoleMappingsCompact(String groupRoleMappingsCompact) {
+        this.groupRoleMappingsCompact = groupRoleMappingsCompact;
+    }
+
+    public String getAppRoleMappingsCompact() {
+        return appRoleMappingsCompact;
+    }
+
+    public void setAppRoleMappingsCompact(String appRoleMappingsCompact) {
+        this.appRoleMappingsCompact = appRoleMappingsCompact;
+    }
+
+    public String getClientRoleMappingsCompact() {
+        return clientRoleMappingsCompact;
+    }
+
+    public void setClientRoleMappingsCompact(String clientRoleMappingsCompact) {
+        this.clientRoleMappingsCompact = clientRoleMappingsCompact;
     }
 
     public Map<String, List<String>> getClientRoleMappings() {

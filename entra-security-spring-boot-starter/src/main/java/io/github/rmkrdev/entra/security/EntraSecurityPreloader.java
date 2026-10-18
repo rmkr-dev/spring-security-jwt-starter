@@ -46,8 +46,9 @@ public class EntraSecurityPreloader implements SmartInitializingSingleton {
         log.info("Entra security active: tenant={} clientId={} audiences={} issuers={} publicPaths={} "
                 + "groupMappings={} appRoleMappings={} clientMappings={} graphOverage={} outboundClients={}",
                 config.getTenantId(), config.getClientId(), config.resolveAudiences(), config.resolveIssuers(),
-                config.getPublicPaths(), config.getGroupRoleMappings().size(), config.getAppRoleMappings().size(),
-                config.getClientRoleMappings().size(), config.getGraph().isOverageEnabled(),
+                config.getPublicPaths(), config.resolveGroupRoleMappings().size(),
+                config.resolveAppRoleMappings().size(), config.resolveClientRoleMappings().size(),
+                config.getGraph().isOverageEnabled(),
                 config.getOutbound().getClients().keySet());
         JWKSource<SecurityContext> source = jwkSource.getIfAvailable();
         if (!preloadJwks || source == null) {

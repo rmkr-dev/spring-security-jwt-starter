@@ -85,9 +85,9 @@ public class EntraSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public EntraAuthorityMapper entraAuthorityMapper(EntraSecurityProperties properties) {
         return EntraAuthorityMapper.builder()
-                .groupRoleMappings(properties.getGroupRoleMappings())
-                .appRoleMappings(properties.getAppRoleMappings())
-                .clientRoleMappings(properties.getClientRoleMappings())
+                .groupRoleMappings(properties.resolveGroupRoleMappings())
+                .appRoleMappings(properties.resolveAppRoleMappings())
+                .clientRoleMappings(properties.resolveClientRoleMappings())
                 .includeUserRolesClaim(properties.getUser().isIncludeRolesClaim())
                 .includeScopes(properties.getUser().isIncludeScopes())
                 .mapUnmappedAppRoles(properties.getService().isMapUnmappedAppRoles())
