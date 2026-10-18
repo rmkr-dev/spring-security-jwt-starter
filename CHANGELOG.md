@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Dependabot for Maven dependencies and GitHub Actions (weekly; Spring Boot major upgrades excluded).
+- CodeQL analysis for Java on pull requests, pushes to `main` and a weekly schedule.
+- JaCoCo coverage reports in every module, a line and branch minimum per library module enforced by
+  `mvn verify`, and a coverage summary and report artifact in CI.
+- `SECURITY.md`, `CONTRIBUTING.md`, and issue and pull request templates.
+
 ## [0.5.0] - 2026-10-18
 
 ### Added

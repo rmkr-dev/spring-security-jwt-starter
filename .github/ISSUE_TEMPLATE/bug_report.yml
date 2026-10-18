@@ -1,0 +1,57 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. If this is a security problem, please stop here and follow
+        [SECURITY.md](https://github.com/rmkr-dev/spring-security-jwt-starter/blob/main/SECURITY.md) instead.
+        Redact tenant ids, client ids, secrets and tokens from anything you paste.
+  - type: input
+    id: version
+    attributes:
+      label: Starter version
+      placeholder: 0.6.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Spring Boot and Java versions
+      placeholder: Spring Boot 3.5.x, Java 21
+    validations:
+      required: true
+  - type: dropdown
+    id: stack
+    attributes:
+      label: Web stack
+      options:
+        - Spring MVC (servlet)
+        - WebFlux (reactive)
+        - Not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: The relevant `entra.security.*` properties, redacted.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or stack trace
+      render: text
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: A failing test or a minimal project is the most useful thing you can share.
