@@ -161,6 +161,18 @@ class EntraMockAuthorityTest {
     }
 
     @Test
+    void graphServiceRootRequiresABearerToken() throws Exception {
+        int graphLookups = authority.graphRequests();
+        assertThat(get("/v1.0/").statusCode()).isEqualTo(401);
+        HttpRequest authorized = HttpRequest.newBuilder(URI.create(authority.baseUrl() + "/v1.0/"))
+                .header("Authorization", "Bearer app-token").GET().build();
+        HttpResponse<String> response = http.send(authorized, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(response.body()).path("@odata.context").asText()).contains("$metadata");
+        assertThat(authority.graphRequests()).isEqualTo(graphLookups);
+    }
+
+    @Test
     void unknownPathsAre404() throws Exception {
         assertThat(get("/nope").statusCode()).isEqualTo(404);
     }

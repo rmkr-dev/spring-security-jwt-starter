@@ -24,6 +24,11 @@ public final class ClientSecretCredential implements EntraCredential {
     }
 
     @Override
+    public String credentialType() {
+        return "client_secret";
+    }
+
+    @Override
     public String toString() {
         return "ClientSecretCredential[****]";
     }

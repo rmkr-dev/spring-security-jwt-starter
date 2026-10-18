@@ -13,6 +13,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +23,7 @@ import org.springframework.web.client.RestClient;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.token.AccessToken;
 
 class GraphGroupMembershipResolverTest {
@@ -69,6 +72,29 @@ class GraphGroupMembershipResolverTest {
         assertThat(caching.resolve("t", OID)).hasSize(1);
         assertThat(caching.resolve("t", OID)).hasSize(1);
         wireMock.verify(1, getRequestedFor(urlPathEqualTo(PATH)));
+    }
+
+    @Test
+    void observationsSeeLookupsIncludingFailuresAndSkipCacheHits() {
+        wireMock.stubFor(get(urlPathEqualTo(PATH)).willReturn(okJson(
+                "{\"value\":[{\"@odata.type\":\"#microsoft.graph.group\",\"id\":\"g1\"}]}")));
+        List<Boolean> results = new ArrayList<>();
+        GraphGroupMembershipResolver observed = new GraphGroupMembershipResolver(RestClient.create(),
+                scope -> new AccessToken("graph-token", Instant.now().plusSeconds(3600)),
+                URI.create(wireMock.baseUrl() + "/"), "https://graph.microsoft.com/.default", 5,
+                new EntraSecurityObservations() {
+                    @Override
+                    public void graphLookup(boolean success, Duration duration) {
+                        assertThat(duration).isGreaterThanOrEqualTo(Duration.ZERO);
+                        results.add(success);
+                    }
+                });
+        CachingGroupMembershipResolver caching = new CachingGroupMembershipResolver(observed, Duration.ofMinutes(5),
+                100);
+        assertThat(caching.resolve("t", OID)).hasSize(1);
+        assertThat(caching.resolve("t", OID)).hasSize(1);
+        assertThatThrownBy(() -> observed.resolve("t", "not-a-guid")).isInstanceOf(GroupResolutionException.class);
+        assertThat(results).containsExactly(true, false);
     }
 
     @Test
