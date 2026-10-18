@@ -33,19 +33,39 @@ public final class TtlCache<K, V> {
     }
 
     public V get(K key, Function<? super K, ? extends V> loader) {
-        Instant now = clock.instant();
-        Entry<V> existing = entries.get(key);
-        if (existing != null && existing.expiresAt().isAfter(now)) {
-            return existing.value();
+        V cached = getIfPresent(key);
+        if (cached != null) {
+            return cached;
         }
         V value = loader.apply(key);
-        if (value != null && !ttl.isZero()) {
-            if (entries.size() >= maxEntries) {
-                evict(now);
-            }
-            entries.put(key, new Entry<>(value, now.plus(ttl)));
-        }
+        put(key, value);
         return value;
+    }
+
+    /**
+     * The live value for {@code key}, or {@code null} when absent or expired.
+     */
+    public V getIfPresent(K key) {
+        Entry<V> existing = entries.get(key);
+        if (existing != null && existing.expiresAt().isAfter(clock.instant())) {
+            return existing.value();
+        }
+        return null;
+    }
+
+    /**
+     * Stores {@code value} for the configured time-to-live. {@code null} values are ignored, and nothing is
+     * stored when the time-to-live is zero.
+     */
+    public void put(K key, V value) {
+        if (value == null || ttl.isZero()) {
+            return;
+        }
+        Instant now = clock.instant();
+        if (entries.size() >= maxEntries) {
+            evict(now);
+        }
+        entries.put(key, new Entry<>(value, now.plus(ttl)));
     }
 
     public int size() {
