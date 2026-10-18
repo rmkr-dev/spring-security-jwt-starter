@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
@@ -42,6 +43,10 @@ import io.github.rmkrdev.entra.security.core.web.ProblemDetailsWriter;
 
 /**
  * Auto-configuration that turns a Spring Boot servlet application into an Entra ID resource server.
+ * <p>
+ * The configuration, JWKS source, token providers, classifier and authority mapper are shared with the
+ * reactive stack ({@link EntraReactiveSecurityAutoConfiguration}); the servlet-specific beans are skipped in
+ * reactive web applications.
  */
 @AutoConfiguration(beforeName = {
         "org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration",
@@ -72,18 +77,6 @@ public class EntraSecurityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public JwtDecoder entraJwtDecoder(JWKSource<SecurityContext> entraJwkSource, EntraSecurityProperties properties,
-            ObjectProvider<EntraSecurityObservations> observations) {
-        String tenant = properties.isRequireTenantMatch()
-                && EntraSecurityProperties.GUID.matcher(properties.getTenantId()).matches()
-                        ? properties.getTenantId() : null;
-        JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, properties.resolveIssuers(),
-                properties.resolveAudiences(), tenant, properties.getClockSkew());
-        return ObservingJwtDecoder.wrap(decoder, observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public EntraTokenClassifier entraTokenClassifier() {
         return new EntraTokenClassifier();
     }
@@ -103,58 +96,78 @@ public class EntraSecurityAutoConfiguration {
                 .build();
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "graph.overage-enabled",
-            havingValue = "true")
-    public GroupMembershipResolver entraGroupMembershipResolver(EntraSecurityProperties properties,
-            EntraTokenProviders tokenProviders, ObjectProvider<EntraSecurityObservations> observations) {
-        EntraSecurityProperties.Graph graph = properties.getGraph();
-        GraphGroupMembershipResolver graphResolver = new GraphGroupMembershipResolver(
-                EntraTokenProviders.defaultRestClient(properties), tokenProviders.applicationTokenProvider(),
-                graph.getBaseUrl(), graph.getScope(), graph.getMaxPages(),
-                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
-        return new CachingGroupMembershipResolver(graphResolver, graph.getCacheTtl(), graph.getCacheMaxEntries());
-    }
+    /**
+     * The servlet resource server: the blocking decoder, converter and problem-details handlers. Skipped in
+     * reactive web applications, which get {@link EntraReactiveSecurityAutoConfiguration} instead.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @Conditional(OnNotReactiveWebApplicationCondition.class)
+    static class EntraServletResourceServerConfiguration {
 
-    @Bean
-    @ConditionalOnMissingBean
-    public EntraJwtAuthenticationConverter entraJwtAuthenticationConverter(EntraTokenClassifier classifier,
-            EntraAuthorityMapper mapper, ObjectProvider<GroupMembershipResolver> groupResolver,
-            EntraSecurityProperties properties, ObjectProvider<EntraSecurityObservations> observations) {
-        return new EntraJwtAuthenticationConverter(classifier, mapper, groupResolver.getIfAvailable(),
-                properties.getService().isRequireKnownClient(),
-                new SafeClaimLogger(properties.getLogging().isLogClaims()),
-                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
-    }
+        @Bean
+        @ConditionalOnMissingBean
+        public JwtDecoder entraJwtDecoder(JWKSource<SecurityContext> entraJwkSource,
+                EntraSecurityProperties properties, ObjectProvider<EntraSecurityObservations> observations) {
+            JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, properties.resolveIssuers(),
+                    properties.resolveAudiences(), properties.resolveRequiredTenantId(), properties.getClockSkew());
+            return ObservingJwtDecoder.wrap(decoder,
+                    observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+        }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public ProblemDetailsWriter entraProblemDetailsWriter(ObjectProvider<ObjectMapper> objectMapper) {
-        return new ProblemDetailsWriter(objectMapper.getIfAvailable(ObjectMapper::new));
-    }
+        @Bean
+        @ConditionalOnMissingBean
+        @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "graph.overage-enabled",
+                havingValue = "true")
+        public GroupMembershipResolver entraGroupMembershipResolver(EntraSecurityProperties properties,
+                EntraTokenProviders tokenProviders, ObjectProvider<EntraSecurityObservations> observations) {
+            EntraSecurityProperties.Graph graph = properties.getGraph();
+            GraphGroupMembershipResolver graphResolver = new GraphGroupMembershipResolver(
+                    EntraTokenProviders.defaultRestClient(properties), tokenProviders.applicationTokenProvider(),
+                    graph.getBaseUrl(), graph.getScope(), graph.getMaxPages(),
+                    observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+            return new CachingGroupMembershipResolver(graphResolver, graph.getCacheTtl(),
+                    graph.getCacheMaxEntries());
+        }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public ProblemDetailsAuthenticationEntryPoint entraAuthenticationEntryPoint(ProblemDetailsWriter writer,
-            ObjectProvider<EntraSecurityObservations> observations) {
-        return new ProblemDetailsAuthenticationEntryPoint(writer,
-                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
-    }
+        @Bean
+        @ConditionalOnMissingBean
+        public EntraJwtAuthenticationConverter entraJwtAuthenticationConverter(EntraTokenClassifier classifier,
+                EntraAuthorityMapper mapper, ObjectProvider<GroupMembershipResolver> groupResolver,
+                EntraSecurityProperties properties, ObjectProvider<EntraSecurityObservations> observations) {
+            return new EntraJwtAuthenticationConverter(classifier, mapper, groupResolver.getIfAvailable(),
+                    properties.getService().isRequireKnownClient(),
+                    new SafeClaimLogger(properties.getLogging().isLogClaims()),
+                    observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+        }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public ProblemDetailsAccessDeniedHandler entraAccessDeniedHandler(ProblemDetailsWriter writer) {
-        return new ProblemDetailsAccessDeniedHandler(writer);
-    }
+        @Bean
+        @ConditionalOnMissingBean
+        public ProblemDetailsWriter entraProblemDetailsWriter(ObjectProvider<ObjectMapper> objectMapper) {
+            return new ProblemDetailsWriter(objectMapper.getIfAvailable(ObjectMapper::new));
+        }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public EntraHttpSecurity entraHttpSecurity(JwtDecoder jwtDecoder, EntraJwtAuthenticationConverter converter,
-            ProblemDetailsAuthenticationEntryPoint entryPoint, ProblemDetailsAccessDeniedHandler accessDeniedHandler,
-            EntraSecurityProperties properties) {
-        List<String> publicPaths = properties.getPublicPaths();
-        return new EntraHttpSecurity(jwtDecoder, converter, entryPoint, accessDeniedHandler, publicPaths);
+        @Bean
+        @ConditionalOnMissingBean
+        public ProblemDetailsAuthenticationEntryPoint entraAuthenticationEntryPoint(ProblemDetailsWriter writer,
+                ObjectProvider<EntraSecurityObservations> observations) {
+            return new ProblemDetailsAuthenticationEntryPoint(writer,
+                    observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        public ProblemDetailsAccessDeniedHandler entraAccessDeniedHandler(ProblemDetailsWriter writer) {
+            return new ProblemDetailsAccessDeniedHandler(writer);
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        public EntraHttpSecurity entraHttpSecurity(JwtDecoder jwtDecoder,
+                EntraJwtAuthenticationConverter converter, ProblemDetailsAuthenticationEntryPoint entryPoint,
+                ProblemDetailsAccessDeniedHandler accessDeniedHandler, EntraSecurityProperties properties) {
+            List<String> publicPaths = properties.getPublicPaths();
+            return new EntraHttpSecurity(jwtDecoder, converter, entryPoint, accessDeniedHandler, publicPaths);
+        }
     }
 
     /**
@@ -177,6 +190,7 @@ public class EntraSecurityAutoConfiguration {
      * Enables {@code @Secured}, {@code @PreAuthorize} and {@code @RolesAllowed} by default.
      */
     @Configuration(proxyBeanMethods = false)
+    @Conditional(OnNotReactiveWebApplicationCondition.class)
     @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "method-security.enabled",
             havingValue = "true", matchIfMissing = true)
     @EnableMethodSecurity(securedEnabled = true, jsr250Enabled = true)

@@ -138,6 +138,14 @@ public class EntraSecurityProperties {
         return URI.create(trimSlash(authorityHost.toString()) + "/" + tenantId + "/discovery/v2.0/keys");
     }
 
+    /**
+     * The {@code tid} every token must carry, or {@code null} when the check is off or the tenant is not
+     * a GUID (domain tenants are covered by the explicit issuers instead).
+     */
+    public String resolveRequiredTenantId() {
+        return requireTenantMatch && tenantId != null && GUID.matcher(tenantId).matches() ? tenantId : null;
+    }
+
     // ---------------------------------------------------------------- cross-field validation
 
     @AssertTrue(message = "entra.security.tenant-id must be a single tenant: 'common', 'organizations' and "

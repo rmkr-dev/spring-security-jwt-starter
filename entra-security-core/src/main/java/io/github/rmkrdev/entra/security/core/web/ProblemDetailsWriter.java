@@ -2,7 +2,6 @@ package io.github.rmkrdev.entra.security.core.web;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -29,15 +28,7 @@ public final class ProblemDetailsWriter {
         if (response.isCommitted()) {
             return;
         }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("type", "about:blank");
-        body.put("title", status.getReasonPhrase());
-        body.put("status", status.value());
-        body.put("detail", detail);
-        body.put("instance", request.getRequestURI());
-        if (errorCode != null) {
-            body.put("error", errorCode);
-        }
+        Map<String, Object> body = ProblemDetails.body(status, detail, errorCode, request.getRequestURI());
         response.setStatus(status.value());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);

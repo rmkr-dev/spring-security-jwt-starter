@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.core.env.Environment;
@@ -20,8 +21,10 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.test.context.support.WithSecurityContextFactory;
+import org.springframework.util.ClassUtils;
 
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtAuthenticationConverter;
+import io.github.rmkrdev.entra.security.core.jwt.ReactiveEntraJwtAuthenticationConverter;
 import io.github.rmkrdev.entra.security.core.principal.EntraAuthenticationToken;
 import io.github.rmkrdev.entra.security.core.principal.EntraPrincipal;
 import io.github.rmkrdev.entra.security.core.principal.PrincipalType;
@@ -35,8 +38,12 @@ abstract class AbstractMockEntraSecurityContextFactory<A extends Annotation> imp
 
     static final String DEFAULT_TENANT_ID = "00000000-0000-4000-8000-000000000000";
 
+    private static final boolean REACTOR_PRESENT = ClassUtils.isPresent("reactor.core.publisher.Mono",
+            AbstractMockEntraSecurityContextFactory.class.getClassLoader());
+
     private Converter<Jwt, AbstractAuthenticationToken> converter;
     private Environment environment;
+    private BeanFactory beanFactory;
 
     @Autowired(required = false)
     public void setConverter(EntraJwtAuthenticationConverter converter) {
@@ -46,6 +53,11 @@ abstract class AbstractMockEntraSecurityContextFactory<A extends Annotation> imp
     @Autowired(required = false)
     public void setEnvironment(Environment environment) {
         this.environment = environment;
+    }
+
+    @Autowired(required = false)
+    public void setBeanFactory(BeanFactory beanFactory) {
+        this.beanFactory = beanFactory;
     }
 
     @Override
@@ -83,8 +95,7 @@ abstract class AbstractMockEntraSecurityContextFactory<A extends Annotation> imp
     }
 
     private EntraAuthenticationToken authenticate(Jwt jwt, List<String> extraRoles) {
-        EntraAuthenticationToken mapped = converter != null
-                && converter.convert(jwt) instanceof EntraAuthenticationToken token ? token : direct(jwt);
+        EntraAuthenticationToken mapped = map(jwt);
         if (extraRoles.isEmpty()) {
             return mapped;
         }
@@ -94,6 +105,23 @@ abstract class AbstractMockEntraSecurityContextFactory<A extends Annotation> imp
         EntraPrincipal principal = new EntraPrincipal(p.type(), p.tenantId(), p.objectId(), p.subject(), p.appId(),
                 p.displayName(), p.username(), roles, p.appRoles(), p.groups(), p.scopes(), p.tokenVersion());
         return new EntraAuthenticationToken(jwt, principal, authorities(roles));
+    }
+
+    /**
+     * Runs the starter's converter: the servlet one, or in a WebFlux application the reactive one. Without the
+     * starter, roles come straight from the annotation.
+     */
+    private EntraAuthenticationToken map(Jwt jwt) {
+        if (converter != null) {
+            return converter.convert(jwt) instanceof EntraAuthenticationToken token ? token : direct(jwt);
+        }
+        if (REACTOR_PRESENT && beanFactory != null) {
+            EntraAuthenticationToken token = ReactiveConversion.convert(beanFactory, jwt);
+            if (token != null) {
+                return token;
+            }
+        }
+        return direct(jwt);
     }
 
     private static EntraAuthenticationToken direct(Jwt jwt) {
@@ -168,5 +196,20 @@ abstract class AbstractMockEntraSecurityContextFactory<A extends Annotation> imp
 
     private static List<GrantedAuthority> authorities(Set<String> roles) {
         return roles.stream().<GrantedAuthority>map(SimpleGrantedAuthority::new).toList();
+    }
+
+    /**
+     * Kept in its own class so Reactor is only loaded when it is on the classpath.
+     */
+    private static final class ReactiveConversion {
+
+        static EntraAuthenticationToken convert(BeanFactory beanFactory, Jwt jwt) {
+            ReactiveEntraJwtAuthenticationConverter converter = beanFactory
+                    .getBeanProvider(ReactiveEntraJwtAuthenticationConverter.class).getIfAvailable();
+            if (converter == null) {
+                return null;
+            }
+            return converter.convert(jwt).block() instanceof EntraAuthenticationToken token ? token : null;
+        }
     }
 }

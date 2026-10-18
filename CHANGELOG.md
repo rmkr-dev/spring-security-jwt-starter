@@ -6,6 +6,48 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-18
+
+### Added
+
+- Reactive (WebFlux) resource-server support, auto-configured only in reactive web applications
+  (`EntraReactiveSecurityAutoConfiguration`). Servlet applications are unchanged.
+  - `EntraReactiveJwtDecoder`: runs the same decoder as the servlet stack (RS256, tenant JWKS cache, issuer,
+    audience, tenant, `exp`/`nbf` with clock skew) on `boundedElastic`, so both stacks accept and reject the
+    same tokens with the same errors.
+  - `ReactiveEntraJwtAuthenticationConverter`: the same user/service classification, group, app-role and
+    client mappings and client allow-list as `EntraJwtAuthenticationConverter`.
+  - Group overage through `ReactiveGraphGroupMembershipResolver` (`WebClient`, same request, paging limit and
+    errors as the blocking resolver) and `CachingReactiveGroupMembershipResolver`; failed lookups fail closed
+    and are not cached. An application-defined blocking `GroupMembershipResolver` is adapted onto
+    `boundedElastic`.
+  - JSON 401/403: `ServerProblemDetailsAuthenticationEntryPoint` and `ServerProblemDetailsAccessDeniedHandler`
+    write the same status, `WWW-Authenticate` header and `application/problem+json` body as the servlet
+    handlers.
+  - Default `SecurityWebFilterChain` (`entraSecurityWebFilterChain`): stateless, CSRF off, public paths open,
+    everything else authenticated. Backs off when the application defines its own; `EntraServerHttpSecurity`
+    applies the same setup to a custom chain.
+  - Method security: `@EnableReactiveMethodSecurity` by default (`entra.security.method-security.enabled`),
+    plus `@Secured` for reactive methods, which Spring Security does not provide on WebFlux. `@Secured` is also
+    added when the application enables `@EnableReactiveMethodSecurity` itself.
+  - `EntraPrincipal` and `Mono<EntraPrincipal>` controller parameters, and `ReactiveEntraPrincipals.current()`.
+- `entra-security-test`: `EntraWebTestClient.bearer(...)`, and `@WithMockEntraUser`/`@WithMockEntraService`
+  go through the reactive converter in WebFlux applications.
+- `sample-reactive-api`: the sample service on WebFlux with no servlet API on the classpath, tested with
+  `WebTestClient` against the mock authority, including a real Netty server.
+- README section "Reactive (WebFlux)" and WebTestClient testing notes.
+
+### Changed
+
+- `@EnableEntraSecurity` picks the method security for the application type: `@EnableMethodSecurity`
+  (`@Secured`, `@PreAuthorize`, `@RolesAllowed`) for servlet and non-web applications,
+  `@EnableReactiveMethodSecurity` with `@Secured` for WebFlux. `mode` and `proxyTargetClass` still apply.
+- The servlet-only beans of `EntraSecurityAutoConfiguration` (`JwtDecoder`, `EntraJwtAuthenticationConverter`,
+  `GroupMembershipResolver`, problem-details handlers, `EntraHttpSecurity`, method security) are no longer
+  created in reactive web applications. The shared beans (properties, JWKS source, token providers, classifier,
+  authority mapper) are unchanged.
+- `TtlCache` gained `getIfPresent` and `put`.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
@@ -72,6 +114,7 @@ All notable changes to this project are documented here. The format follows
   Java 17 and 21.
 
 [Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/commits/main
+[0.4.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/pull/5
 [0.3.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.2.0...main
 [0.2.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/pull/2
 [0.1.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/pull/1
