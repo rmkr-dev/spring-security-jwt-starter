@@ -15,6 +15,11 @@
     <description>Test support for services using the Entra security starter: an in-process mock Entra authority,
         signed test tokens and @WithMockEntraUser / @WithMockEntraService.</description>
 
+    <properties>
+        <coverage.line.minimum>0.91</coverage.line.minimum>
+        <coverage.branch.minimum>0.70</coverage.branch.minimum>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.rmkr-dev</groupId>

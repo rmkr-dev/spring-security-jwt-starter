@@ -14,6 +14,11 @@
     <name>Entra Security Spring Boot Starter</name>
     <description>Auto-configuration for securing Spring Boot APIs with Microsoft Entra ID access tokens.</description>
 
+    <properties>
+        <coverage.line.minimum>0.85</coverage.line.minimum>
+        <coverage.branch.minimum>0.64</coverage.branch.minimum>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.rmkr-dev</groupId>
