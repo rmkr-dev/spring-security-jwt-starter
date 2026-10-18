@@ -40,6 +40,7 @@
         <module>entra-security-spring-boot-starter</module>
         <module>entra-security-test</module>
         <module>sample-api</module>
+        <module>sample-reactive-api</module>
     </modules>
 
     <properties>

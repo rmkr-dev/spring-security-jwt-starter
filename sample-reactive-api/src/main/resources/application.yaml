@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: sample-reactive-api
+  config:
+    # Kubernetes: same layout as sample-api (ConfigMap at /config, Secret keys under /etc/entra).
+    import:
+      - optional:file:/config/application.yaml
+      - optional:configtree:/etc/entra/
+
+# Required values can also come from env vars: ENTRA_SECURITY_TENANTID, ENTRA_SECURITY_CLIENTID.
+entra:
+  security:
+    public-paths:
+      - /actuator/health/**
+      - /actuator/info
+    # group-role-mappings:
+    #   "<group-object-id>": [ORDERS_READ]
+    # app-role-mappings:
+    #   "[Orders.Sync]": [ORDERS_SYNC]
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      # Demo: component details (entraJwks, entraGraph) are visible without a token.
+      # Prefer when-authorized outside a local sample.
+      show-details: always
+      show-components: always
+      probes:
+        enabled: true
