@@ -19,4 +19,11 @@ public interface EntraCredential {
      * @param clientId      the client id making the request
      */
     void contribute(MultiValueMap<String, String> form, URI tokenEndpoint, String clientId);
+
+    /**
+     * Bounded label for metrics: {@code client_secret}, {@code certificate} or {@code workload_identity}.
+     */
+    default String credentialType() {
+        return "unknown";
+    }
 }

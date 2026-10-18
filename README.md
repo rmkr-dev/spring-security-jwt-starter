@@ -27,6 +27,7 @@ public List<Order> orders() { ... }
 - [Kubernetes](#kubernetes)
 - [Configuration reference](#configuration-reference)
 - [Security defaults](#security-defaults)
+- [Observability](#observability)
 - [Customising](#customising)
 - [Testing your service](#testing-your-service)
 - [Building](#building)
@@ -37,7 +38,7 @@ public List<Order> orders() { ... }
 | Module | Purpose |
 | --- | --- |
 | `entra-security-core` | Framework-level pieces: JWT decoder and validators, user/service classification, authority mapping, Graph group lookup, token acquisition (secret, certificate, workload identity), outbound interceptors, problem-details handlers, `EntraPrincipal`. |
-| `entra-security-spring-boot-starter` | Auto-configuration (`AutoConfiguration.imports`), `entra.security.*` properties with validation, the default `SecurityFilterChain`, `@EnableEntraSecurity`, `EntraOutboundClients`. |
+| `entra-security-spring-boot-starter` | Auto-configuration (`AutoConfiguration.imports`), `entra.security.*` properties with validation, the default `SecurityFilterChain`, `@EnableEntraSecurity`, `EntraOutboundClients`, optional Actuator health and Micrometer metrics. |
 | `entra-security-test` | Test support for consuming services: an in-process mock Entra authority (JWKS, token endpoint, Graph), signed test tokens, `@AutoConfigureEntraMockAuthority`, `@WithMockEntraUser` and `@WithMockEntraService`. |
 | `sample-api` | Example service with user and service endpoints, an outbound client and Kubernetes manifests (`sample-api/k8s`). |
 
@@ -49,7 +50,7 @@ public List<Order> orders() { ... }
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-spring-boot-starter</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
@@ -424,6 +425,54 @@ names the property.
   one line per request with type, truncated oid, appid, tid, issuer, roles and counts. Tokens, names
   and e-mail addresses are never logged.
 
+## Observability
+
+Health and metrics are optional. An application that does not depend on Actuator or Micrometer is
+unchanged: the auto-configurations are `@ConditionalOnClass` and are not loaded.
+
+Add Actuator when you want the health endpoint (it already brings Micrometer):
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+### Health
+
+| Component | When it is registered | UP | DOWN |
+| --- | --- | --- | --- |
+| `entraJwks` | Actuator is on the classpath | The tenant JWKS can be fetched or read from cache and contains at least one RSA signing key | The JWKS cannot be loaded (`reason=unreachable`) or has no usable signing key (`reason=no_signing_keys`) |
+| `entraGraph` | `entra.security.graph.overage-enabled=true` | An app-only token is acquired and `GET {graph.base-url}/v1.0/` succeeds | Token acquisition fails (`reason=token`), Graph rejects the credential (`reason=unauthorized`) or Graph cannot be reached (`reason=unreachable`) |
+
+`entraGraph` is omitted when group overage is off, so it cannot fail `/actuator/health`. With
+`management.endpoint.health.show-details=always` (or `when-authorized`) the components show under
+those names. They are part of the default readiness group and are not part of liveness, so a JWKS
+or Graph outage stops traffic without restarting the process.
+
+`/actuator/health` stays public: the default `public-paths` are `/actuator/health`,
+`/actuator/health/**` and `/actuator/info`. The metrics endpoint is not public.
+
+### Metrics
+
+Meters use the prefix `entra.security`. Tags are a fixed set: no object id, token, tenant, or group
+id is ever a tag value.
+
+| Meter | Type | Tags |
+| --- | --- | --- |
+| `entra.security.jwt.authentications` | counter | `result` (`success`/`failure`), `reason` |
+| `entra.security.jwks.refreshes` | timer | `result` |
+| `entra.security.graph.lookups` | timer | `result` |
+| `entra.security.token.acquisitions` | timer | `result`, `credential` (`client_secret`, `certificate`, `workload_identity`) |
+
+`reason` on a successful authentication is `none`. Failures use `missing`, `expired`,
+`not_yet_valid`, `invalid_issuer`, `invalid_audience`, `invalid_tenant`, `missing_claims`,
+`invalid_signature`, `unknown_key`, `malformed`, `client_not_allowed` or `invalid_token`.
+JWKS refreshes, Graph group lookups and token-endpoint calls are recorded only when this library
+actually makes the HTTP call, not when it serves a cached key, group list or access token.
+The Graph health probe is not a group lookup and does not increment `entra.security.graph.lookups`.
+
 ## Customising
 
 - Define your own `SecurityFilterChain` and the default one backs off. Reuse the Entra setup with
@@ -449,7 +498,7 @@ Add the test module next to the starter:
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-test</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -555,7 +604,6 @@ no Entra tenant is needed. CI runs on Java 17 and 21.
 See [CHANGELOG.md](CHANGELOG.md) for what is released. Planned next:
 
 - Reactive (WebFlux) resource-server support.
-- Actuator health indicator (JWKS, Graph) and Micrometer metrics.
 - Publishing to Maven Central (sources, javadoc, signing) and a tagged release.
 - On-behalf-of (OBO) flow for calling downstream APIs as the user.
 - Optional compact env-var syntax for role mappings.

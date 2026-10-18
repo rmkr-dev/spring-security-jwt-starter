@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
+### Added
+
+- Actuator health indicators, registered only when `spring-boot-actuator` is on the classpath:
+  - `entraJwks`: UP when the tenant JWKS can be fetched or read from cache and has at least one RSA
+    signing key; DOWN when it cannot be loaded or has no usable key.
+  - `entraGraph`: registered when `entra.security.graph.overage-enabled=true`. UP when an app-only
+    token can be acquired and `GET {graph.base-url}/v1.0/` succeeds; DOWN when the credential or Graph
+    is unavailable. Omitted when overage is disabled, so it does not fail health.
+- Micrometer meters under `entra.security.*`, registered only when `micrometer-core` is on the classpath:
+  JWT authentication outcomes, JWKS refreshes, Graph group-overage lookups and client-credentials token
+  acquisition. Tag values are a fixed set (no object id, token or group id). Cache hits are not counted.
+- `EntraMockAuthority` serves `GET /v1.0/` for the Graph health probe (bearer token required).
+
 ## [0.2.0] - 2026-10-17
 
 ### Added
@@ -57,5 +72,6 @@ All notable changes to this project are documented here. The format follows
   Java 17 and 21.
 
 [Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/commits/main
+[0.3.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.2.0...main
 [0.2.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/pull/2
 [0.1.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/pull/1

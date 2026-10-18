@@ -19,6 +19,8 @@ import org.springframework.web.client.RestClientException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
+
 /**
  * Acquires app-only tokens with the OAuth 2.0 client credentials grant against the Entra v2 token
  * endpoint, and caches them per scope until shortly before they expire.
@@ -33,6 +35,7 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
     private final RestClient restClient;
     private final Duration refreshSkew;
     private final Clock clock;
+    private final EntraSecurityObservations observations;
     private final Map<String, CachedToken> cache = new ConcurrentHashMap<>();
     private final Map<String, Object> locks = new ConcurrentHashMap<>();
 
@@ -46,12 +49,22 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
      */
     public ClientCredentialsTokenProvider(URI tokenEndpoint, String clientId, EntraCredential credential,
             RestClient restClient, Duration refreshSkew, Clock clock) {
+        this(tokenEndpoint, clientId, credential, restClient, refreshSkew, clock, EntraSecurityObservations.NO_OP);
+    }
+
+    /**
+     * @param observations notified on token-endpoint calls only; cache hits are silent.
+     *                     {@code null} is treated as {@link EntraSecurityObservations#NO_OP}
+     */
+    public ClientCredentialsTokenProvider(URI tokenEndpoint, String clientId, EntraCredential credential,
+            RestClient restClient, Duration refreshSkew, Clock clock, EntraSecurityObservations observations) {
         this.tokenEndpoint = tokenEndpoint;
         this.clientId = clientId;
         this.credential = credential;
         this.restClient = restClient;
         this.refreshSkew = refreshSkew;
         this.clock = clock;
+        this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
     }
 
     /**
@@ -91,6 +104,19 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
     }
 
     private CachedToken fetch(String scope) {
+        long start = System.nanoTime();
+        try {
+            CachedToken fresh = requestToken(scope);
+            observations.tokenAcquisition(credential.credentialType(), true, elapsed(start));
+            return fresh;
+        }
+        catch (RuntimeException ex) {
+            observations.tokenAcquisition(credential.credentialType(), false, elapsed(start));
+            throw ex;
+        }
+    }
+
+    private CachedToken requestToken(String scope) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", "client_credentials");
         form.add("client_id", clientId);
@@ -126,6 +152,10 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
         Duration lifetime = Duration.ofSeconds(expiresIn);
         Duration skew = refreshSkew.compareTo(lifetime.dividedBy(2)) > 0 ? lifetime.dividedBy(2) : refreshSkew;
         return new CachedToken(new AccessToken(body.get("access_token").asText(), expiresAt), expiresAt.minus(skew));
+    }
+
+    private static Duration elapsed(long startNanos) {
+        return Duration.ofNanos(System.nanoTime() - startNanos);
     }
 
     private EntraTokenAcquisitionException error(int status, InputStream bodyStream) {

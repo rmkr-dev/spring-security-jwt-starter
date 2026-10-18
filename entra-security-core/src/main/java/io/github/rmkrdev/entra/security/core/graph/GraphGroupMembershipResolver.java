@@ -1,6 +1,7 @@
 package io.github.rmkrdev.entra.security.core.graph;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -13,6 +14,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.token.EntraTokenProvider;
 
 /**
@@ -32,6 +34,7 @@ public final class GraphGroupMembershipResolver implements GroupMembershipResolv
     private final String baseUrl;
     private final String scope;
     private final int maxPages;
+    private final EntraSecurityObservations observations;
 
     /**
      * @param restClient    HTTP client used for Graph calls
@@ -42,16 +45,40 @@ public final class GraphGroupMembershipResolver implements GroupMembershipResolv
      */
     public GraphGroupMembershipResolver(RestClient restClient, EntraTokenProvider tokenProvider, URI graphBaseUrl,
             String scope, int maxPages) {
+        this(restClient, tokenProvider, graphBaseUrl, scope, maxPages, EntraSecurityObservations.NO_OP);
+    }
+
+    /**
+     * @param observations notified for each lookup, including failures before any HTTP call.
+     *                     {@code null} is treated as {@link EntraSecurityObservations#NO_OP}. Cache hits in
+     *                     {@link CachingGroupMembershipResolver} are not reported.
+     */
+    public GraphGroupMembershipResolver(RestClient restClient, EntraTokenProvider tokenProvider, URI graphBaseUrl,
+            String scope, int maxPages, EntraSecurityObservations observations) {
         this.restClient = restClient;
         this.tokenProvider = tokenProvider;
         String base = graphBaseUrl.toString();
         this.baseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
         this.scope = scope;
         this.maxPages = maxPages;
+        this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
     }
 
     @Override
     public List<GroupMembership> resolve(String tenantId, String objectId) {
+        long start = System.nanoTime();
+        try {
+            List<GroupMembership> groups = lookup(tenantId, objectId);
+            observations.graphLookup(true, Duration.ofNanos(System.nanoTime() - start));
+            return groups;
+        }
+        catch (RuntimeException ex) {
+            observations.graphLookup(false, Duration.ofNanos(System.nanoTime() - start));
+            throw ex;
+        }
+    }
+
+    private List<GroupMembership> lookup(String tenantId, String objectId) {
         if (objectId == null || !GUID.matcher(objectId).matches()) {
             throw new GroupResolutionException("Refusing Graph lookup for a non-GUID object id");
         }

@@ -17,6 +17,7 @@ import org.springframework.security.oauth2.server.resource.InvalidBearerTokenExc
 import io.github.rmkrdev.entra.security.core.authority.EntraAuthorityMapper;
 import io.github.rmkrdev.entra.security.core.graph.GroupMembership;
 import io.github.rmkrdev.entra.security.core.graph.GroupMembershipResolver;
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.principal.EntraAuthenticationToken;
 import io.github.rmkrdev.entra.security.core.principal.EntraPrincipal;
 import io.github.rmkrdev.entra.security.core.principal.PrincipalType;
@@ -34,6 +35,7 @@ public final class EntraJwtAuthenticationConverter implements Converter<Jwt, Abs
     private final GroupMembershipResolver groupResolver;
     private final boolean requireKnownClient;
     private final SafeClaimLogger claimLogger;
+    private final EntraSecurityObservations observations;
     private final AtomicBoolean overageWarningLogged = new AtomicBoolean();
 
     /**
@@ -45,15 +47,41 @@ public final class EntraJwtAuthenticationConverter implements Converter<Jwt, Abs
      */
     public EntraJwtAuthenticationConverter(EntraTokenClassifier classifier, EntraAuthorityMapper mapper,
             GroupMembershipResolver groupResolver, boolean requireKnownClient, SafeClaimLogger claimLogger) {
+        this(classifier, mapper, groupResolver, requireKnownClient, claimLogger, EntraSecurityObservations.NO_OP);
+    }
+
+    /**
+     * @param observations authentication outcomes; {@code null} is treated as
+     *                     {@link EntraSecurityObservations#NO_OP}
+     */
+    public EntraJwtAuthenticationConverter(EntraTokenClassifier classifier, EntraAuthorityMapper mapper,
+            GroupMembershipResolver groupResolver, boolean requireKnownClient, SafeClaimLogger claimLogger,
+            EntraSecurityObservations observations) {
         this.classifier = classifier;
         this.mapper = mapper;
         this.groupResolver = groupResolver;
         this.requireKnownClient = requireKnownClient;
         this.claimLogger = claimLogger;
+        this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
     }
 
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
+        if (observations == EntraSecurityObservations.NO_OP) {
+            return doConvert(jwt);
+        }
+        try {
+            AbstractAuthenticationToken authentication = doConvert(jwt);
+            observations.jwtAuthentication(true, JwtAuthenticationOutcomes.NONE);
+            return authentication;
+        }
+        catch (RuntimeException ex) {
+            observations.jwtAuthentication(false, JwtAuthenticationOutcomes.reason(ex));
+            throw ex;
+        }
+    }
+
+    private AbstractAuthenticationToken doConvert(Jwt jwt) {
         PrincipalType type = classifier.classify(jwt);
         String appId = EntraClaims.appId(jwt);
         if (type == PrincipalType.SERVICE && requireKnownClient && !mapper.isKnownClient(appId)) {

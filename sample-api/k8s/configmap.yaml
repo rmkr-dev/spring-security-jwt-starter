@@ -23,7 +23,7 @@ data:
         service:
           require-known-client: false
         graph:
-          overage-enabled: true                   # users in >200 groups
+          overage-enabled: true                   # users in >200 groups; adds the entraGraph readiness check
           cache-ttl: 10m
         credential:
           type: workload-identity                 # AZURE_* env injected by the AKS webhook

@@ -1,6 +1,8 @@
 package io.github.rmkrdev.entra.sample;
 
 import static io.github.rmkrdev.entra.security.test.EntraMockMvc.bearer;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -17,6 +19,8 @@ import io.github.rmkrdev.entra.security.test.AutoConfigureEntraMockAuthority;
 import io.github.rmkrdev.entra.security.test.EntraTestTokens;
 import io.github.rmkrdev.entra.security.test.WithMockEntraService;
 import io.github.rmkrdev.entra.security.test.WithMockEntraUser;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * How a consuming service tests its endpoints with {@code entra-security-test}: real signed tokens against an
@@ -26,7 +30,10 @@ import io.github.rmkrdev.entra.security.test.WithMockEntraUser;
         "entra.security.tenant-id=11111111-1111-1111-1111-111111111111",
         "entra.security.client-id=22222222-2222-2222-2222-222222222222",
         "entra.security.group-role-mappings.aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa=ORDERS_READ",
-        "entra.security.app-role-mappings[Orders.Sync]=ORDERS_SYNC" })
+        "entra.security.app-role-mappings[Orders.Sync]=ORDERS_SYNC",
+        "entra.security.graph.overage-enabled=true",
+        "entra.security.credential.type=client-secret",
+        "entra.security.credential.client-secret=test-secret" })
 @AutoConfigureMockMvc
 @AutoConfigureEntraMockAuthority
 class SampleApiApplicationTest {
@@ -39,9 +46,32 @@ class SampleApiApplicationTest {
     @Autowired
     EntraTestTokens tokens;
 
+    @Autowired
+    MeterRegistry registry;
+
     @Test
-    void healthIsPublic() throws Exception {
-        mvc.perform(get("/actuator/health")).andExpect(status().isOk());
+    void healthIsPublicAndReportsJwksAndGraph() throws Exception {
+        mvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.components.entraJwks.status").value("UP"))
+                .andExpect(jsonPath("$.components.entraGraph.status").value("UP"));
+    }
+
+    @Test
+    void metricsAreAuthenticatedAndCountJwtSuccess() throws Exception {
+        mvc.perform(get("/actuator/metrics")).andExpect(status().isUnauthorized());
+        double before = authentications("success", "none");
+        mvc.perform(get("/api/orders").with(bearer(tokens.user().groups(READERS)))).andExpect(status().isOk());
+        assertThat(authentications("success", "none")).isEqualTo(before + 1);
+        mvc.perform(get("/actuator/metrics").with(bearer(tokens.user().groups(READERS))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.names", hasItem("entra.security.jwt.authentications")));
+    }
+
+    private double authentications(String result, String reason) {
+        Counter counter = registry.find("entra.security.jwt.authentications").tag("result", result)
+                .tag("reason", reason).counter();
+        return counter == null ? 0 : counter.count();
     }
 
     @Test

@@ -17,7 +17,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -31,6 +33,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jwt.SignedJWT;
 
+import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.test.TestCertificates;
 
 class ClientCredentialsTokenProviderTest {
@@ -140,6 +143,34 @@ class ClientCredentialsTokenProviderTest {
         assertThatThrownBy(() -> ClientCertificateCredential.fromPem(
                 "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----"))
                 .hasMessageContaining("openssl pkcs8");
+    }
+
+    @Test
+    void observationsSeeFetchesButNotCacheHits() {
+        stubToken("token-1", 3600);
+        List<Boolean> results = new ArrayList<>();
+        EntraSecurityObservations observations = new EntraSecurityObservations() {
+            @Override
+            public void tokenAcquisition(String credentialType, boolean success, Duration duration) {
+                assertThat(credentialType).isEqualTo("client_secret");
+                assertThat(duration).isGreaterThanOrEqualTo(Duration.ZERO);
+                results.add(success);
+            }
+        };
+        ClientCredentialsTokenProvider provider = new ClientCredentialsTokenProvider(tokenEndpoint, "app-id",
+                new ClientSecretCredential("s3cret"), RestClient.create(), Duration.ofMinutes(5), Clock.systemUTC(),
+                observations);
+
+        assertThat(provider.getToken("api://peer/.default").value()).isEqualTo("token-1");
+        assertThat(provider.getToken("api://peer/.default").value()).isEqualTo("token-1");
+        assertThat(results).containsExactly(true);
+
+        wireMock.stubFor(post(TOKEN_PATH).willReturn(aResponse().withStatus(400)
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"error\":\"invalid_client\"}")));
+        assertThatThrownBy(() -> provider.getToken("api://other/.default"))
+                .isInstanceOf(EntraTokenAcquisitionException.class);
+        assertThat(results).containsExactly(true, false);
     }
 
     private void stubToken(String token, int expiresIn) {

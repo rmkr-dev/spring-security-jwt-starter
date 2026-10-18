@@ -40,7 +40,9 @@ import com.sun.net.httpserver.HttpServer;
  * <li>{@code POST /{tenant}/oauth2/v2.0/token}: client-credentials tokens (app-only, signed by this authority,
  * audience taken from the requested {@code scope});</li>
  * <li>{@code GET /v1.0/users/{oid}/transitiveMemberOf}: the groups registered with
- * {@link #registerGroups(String, Map)}, for group-overage tests.</li>
+ * {@link #registerGroups(String, Map)}, for group-overage tests;</li>
+ * <li>{@code GET /v1.0/}: the Graph service root used by the {@code entraGraph} health indicator.
+ * Requires a {@code Bearer} token and is not counted by {@link #graphRequests()}.</li>
  * </ul>
  * Point {@code entra.security.authority-host} and {@code entra.security.graph.base-url} at {@link #baseUrl()} and
  * mint tokens with {@link #tokens(String, String)}. With {@link AutoConfigureEntraMockAuthority} all of this is
@@ -227,6 +229,9 @@ public final class EntraMockAuthority implements AutoCloseable {
                 graphRequests.incrementAndGet();
                 listGroups(exchange, matcher.group(1));
             }
+            else if ("GET".equals(method) && ("/v1.0".equals(path) || "/v1.0/".equals(path))) {
+                graphServiceRoot(exchange);
+            }
             else {
                 send(exchange, 404, "{\"error\":\"not_found\"}");
             }
@@ -253,6 +258,16 @@ public final class EntraMockAuthority implements AutoCloseable {
         body.put("expires_in", 3600);
         body.put("access_token", token);
         send(exchange, 200, write(body));
+    }
+
+    private void graphServiceRoot(HttpExchange exchange) throws IOException {
+        String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+        if (authorization == null || !authorization.startsWith("Bearer ")
+                || authorization.length() <= "Bearer ".length()) {
+            send(exchange, 401, "{\"error\":\"unauthorized\"}");
+            return;
+        }
+        send(exchange, 200, "{\"@odata.context\":\"https://graph.microsoft.com/v1.0/$metadata\"}");
     }
 
     private void listGroups(HttpExchange exchange, String objectId) throws IOException {
