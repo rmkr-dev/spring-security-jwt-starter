@@ -567,7 +567,7 @@ public class EntraSecurityProperties implements Validator {
         NONE,
         /** Client secret. */
         CLIENT_SECRET,
-        /** Certificate (PEM with PKCS#8 key, or PKCS#12). */
+        /** Certificate (PEM with a PKCS#8 key, optionally encrypted, or PKCS#12). */
         CERTIFICATE,
         /** Azure Workload Identity federated token file (AKS). */
         WORKLOAD_IDENTITY
@@ -592,7 +592,10 @@ public class EntraSecurityProperties implements Validator {
         /** PEM (certificate + PKCS#8 key) or PKCS#12 (.p12/.pfx) file, for type certificate. */
         private String certificatePath;
 
-        /** PKCS#12 password, for type certificate. */
+        /**
+         * For type certificate: the PKCS#12 keystore password, or the password of an encrypted PEM private key
+         * (ENCRYPTED PRIVATE KEY). Supply it from a Kubernetes Secret.
+         */
         private String certificatePassword;
 
         /** Federated token file, for type workload-identity. Defaults to AZURE_FEDERATED_TOKEN_FILE. */

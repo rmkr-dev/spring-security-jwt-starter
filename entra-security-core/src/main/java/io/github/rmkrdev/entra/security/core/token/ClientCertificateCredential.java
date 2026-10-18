@@ -8,10 +8,12 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.AlgorithmParameters;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.KeyStore;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -20,6 +22,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 import java.util.Enumeration;
@@ -27,6 +30,12 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import javax.crypto.Cipher;
+import javax.crypto.EncryptedPrivateKeyInfo;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 
 import org.springframework.util.MultiValueMap;
 
@@ -42,8 +51,9 @@ import com.nimbusds.jwt.SignedJWT;
 /**
  * Authenticates with a certificate by sending a signed client assertion (RS256, {@code x5t} header).
  * <p>
- * Load it from a PEM file holding the certificate and an unencrypted PKCS#8 private key, or from a
- * PKCS#12 ({@code .p12}/{@code .pfx}) keystore.
+ * Load it from a PEM file holding the certificate and a PKCS#8 private key, which may be encrypted
+ * ({@code ENCRYPTED PRIVATE KEY}, with a password), or from a PKCS#12 ({@code .p12}/{@code .pfx})
+ * keystore.
  */
 public final class ClientCertificateCredential implements EntraCredential {
 
@@ -71,7 +81,8 @@ public final class ClientCertificateCredential implements EntraCredential {
      * Loads a credential from a PEM or PKCS#12 file, chosen by the file extension.
      *
      * @param path     the file
-     * @param password the keystore password (PKCS#12 only), may be {@code null}
+     * @param password the PKCS#12 keystore password, or the password of an encrypted PEM private key;
+     *                 may be {@code null}
      */
     public static ClientCertificateCredential fromFile(Path path, String password) {
         String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
@@ -81,7 +92,7 @@ public final class ClientCertificateCredential implements EntraCredential {
                     return fromPkcs12(in, password);
                 }
             }
-            return fromPem(Files.readString(path, StandardCharsets.US_ASCII));
+            return fromPem(Files.readString(path, StandardCharsets.US_ASCII), password);
         }
         catch (IOException ex) {
             throw new UncheckedIOException("Unable to read client certificate " + path, ex);
@@ -89,9 +100,23 @@ public final class ClientCertificateCredential implements EntraCredential {
     }
 
     /**
-     * Parses a PEM document containing a {@code CERTIFICATE} and a {@code PRIVATE KEY} block.
+     * Parses a PEM document containing a {@code CERTIFICATE} and an unencrypted {@code PRIVATE KEY} block.
      */
     public static ClientCertificateCredential fromPem(String pem) {
+        return fromPem(pem, null);
+    }
+
+    /**
+     * Parses a PEM document containing a {@code CERTIFICATE} block and a PKCS#8 private key, either
+     * unencrypted ({@code PRIVATE KEY}) or encrypted ({@code ENCRYPTED PRIVATE KEY}).
+     * <p>
+     * Encrypted keys use PBES2 (what {@code openssl pkcs8 -topk8} and {@code openssl genpkey -aes256}
+     * write, for example PBKDF2 with HMAC-SHA256 and AES-256-CBC) or a PBES1 scheme the JDK supports.
+     *
+     * @param pem      the PEM text
+     * @param password the password of an encrypted private key; ignored for an unencrypted one
+     */
+    public static ClientCertificateCredential fromPem(String pem, String password) {
         X509Certificate certificate = null;
         PrivateKey key = null;
         Matcher matcher = PEM_BLOCK.matcher(pem);
@@ -111,9 +136,8 @@ public final class ClientCertificateCredential implements EntraCredential {
                     case "RSA PRIVATE KEY" -> throw new IllegalArgumentException(
                             "PKCS#1 'RSA PRIVATE KEY' PEM is not supported; convert it with "
                                     + "'openssl pkcs8 -topk8 -nocrypt -in key.pem -out key-pkcs8.pem'");
-                    case "ENCRYPTED PRIVATE KEY" -> throw new IllegalArgumentException(
-                            "Encrypted PEM private keys are not supported; use an unencrypted PKCS#8 key "
-                                    + "or a PKCS#12 keystore with a password");
+                    case "ENCRYPTED PRIVATE KEY" -> key = KeyFactory.getInstance("RSA")
+                            .generatePrivate(decrypt(der, password));
                     default -> {
                         // ignore other blocks
                     }
@@ -128,6 +152,49 @@ public final class ClientCertificateCredential implements EntraCredential {
                     "Client certificate PEM must contain a CERTIFICATE block and a PRIVATE KEY block");
         }
         return new ClientCertificateCredential(key, certificate, Clock.systemUTC());
+    }
+
+    private static PKCS8EncodedKeySpec decrypt(byte[] der, String password) {
+        if (password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("The PEM private key is encrypted (ENCRYPTED PRIVATE KEY) but no "
+                    + "password is configured; set the certificate password");
+        }
+        EncryptedPrivateKeyInfo info;
+        try {
+            info = new EncryptedPrivateKeyInfo(der);
+        }
+        catch (IOException ex) {
+            throw new IllegalArgumentException("Invalid ENCRYPTED PRIVATE KEY block: " + ex.getMessage(), ex);
+        }
+        AlgorithmParameters parameters = info.getAlgParameters();
+        // For PBES2 the JDK reports "PBES2"; the parameters name the full scheme, e.g. PBEWithHmacSHA256AndAES_256.
+        String algorithm = parameters != null && isPbes2(info.getAlgName()) ? parameters.toString()
+                : info.getAlgName();
+        char[] secret = password.toCharArray();
+        PBEKeySpec keySpec = new PBEKeySpec(secret);
+        try {
+            SecretKey key = SecretKeyFactory.getInstance(algorithm).generateSecret(keySpec);
+            Cipher cipher = Cipher.getInstance(algorithm);
+            cipher.init(Cipher.DECRYPT_MODE, key, parameters);
+            return info.getKeySpec(cipher);
+        }
+        catch (NoSuchAlgorithmException ex) {
+            throw new IllegalArgumentException("The PEM private key is encrypted with " + algorithm
+                    + ", which this JVM does not support; re-encrypt it with "
+                    + "'openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256'", ex);
+        }
+        catch (GeneralSecurityException ex) {
+            throw new IllegalArgumentException("Unable to decrypt the PEM private key; check the certificate "
+                    + "password", ex);
+        }
+        finally {
+            keySpec.clearPassword();
+            Arrays.fill(secret, '\0');
+        }
+    }
+
+    private static boolean isPbes2(String algorithm) {
+        return "PBES2".equalsIgnoreCase(algorithm) || "1.2.840.113549.1.5.13".equals(algorithm);
     }
 
     /**
