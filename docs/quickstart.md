@@ -21,8 +21,9 @@ flowchart LR
 </dependency>
 ```
 
-Alongside `spring-boot-starter-web`, or `spring-boot-starter-webflux` for a reactive service. Until the artifacts
-are on Maven Central, run `mvn install` in this repository first.
+Alongside `spring-boot-starter-web`, or `spring-boot-starter-webflux` for a reactive service. Releases are
+published to GitHub Packages; [releasing.md](releasing.md) shows the repository and token setup. To build from
+source instead, run `mvn install` in this repository.
 
 ## 2. Configure
 

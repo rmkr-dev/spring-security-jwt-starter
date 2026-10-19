@@ -30,6 +30,7 @@ flowchart LR
 | [cae.md](cae.md) | Thin Continuous Access Evaluation support |
 | [testing.md](testing.md) | Mock authority, test tokens, `@WithMockEntraUser` |
 | [troubleshooting.md](troubleshooting.md) | 401/403 reasons, self-check messages, outbound and health problems |
+| [releasing.md](releasing.md) | Installing from GitHub Packages, release files and SBOM, cutting a release |
 
 Every page has its diagram inline as Mermaid. Rendered SVG and PNG copies are in [diagrams/](diagrams/), named
 `<page>-<n>`. To regenerate them, run `scripts/render-diagrams.sh` (it needs Node and uses

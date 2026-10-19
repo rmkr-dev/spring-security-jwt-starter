@@ -54,7 +54,7 @@ Every path except health and info now needs a valid Entra token. Missing tokens 
 - [Service-to-service](docs/service-to-service.md) · [On-behalf-of](docs/on-behalf-of.md) · [Validation modes](docs/validation-modes.md)
 - [Configuration reference](docs/configuration.md) · [Onboarding in Entra](docs/onboarding.md) · [Deployment on AKS](docs/deployment.md)
 - [Observability and auth timing](docs/observability.md) · [Role patterns](docs/role-patterns.md) · [Performance](docs/performance.md)
-- [CAE](docs/cae.md) · [Testing](docs/testing.md) · [Troubleshooting](docs/troubleshooting.md)
+- [CAE](docs/cae.md) · [Testing](docs/testing.md) · [Troubleshooting](docs/troubleshooting.md) · [Releases](docs/releasing.md)
 
 ## Building
 

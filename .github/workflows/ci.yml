@@ -53,3 +53,19 @@ jobs:
           name: surefire-reports-java-${{ matrix.java }}
           path: '**/target/surefire-reports/'
           retention-days: 7
+
+  release-check:
+    name: Release build check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Package with sources, Javadoc and SBOM
+        run: mvn -B -ntp -Prelease -DskipTests package
