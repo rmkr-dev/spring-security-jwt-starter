@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Release publishing. A `release` Maven profile adds sources and Javadoc jars and a CycloneDX SBOM per module.
+  The new `Release` workflow runs on `v*` tags (or by hand for an existing tag, with a dry-run option): it checks
+  that the tag matches the project version, builds and tests with the profile, deploys the parent, core, starter
+  and test modules to GitHub Packages and attaches the jars, SBOMs and `SHA256SUMS` to the GitHub release.
+- CI job `Release build check` runs `mvn -Prelease package` on every pull request, so Javadoc or packaging
+  problems surface before a tag.
+- `docs/releasing.md`: installing from GitHub Packages and cutting a release, with a diagram.
+
 ## [0.7.0] - 2026-10-19
 
 ### Added

@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build, for example v0.8.0
+        required: true
+      publish:
+        description: Publish to GitHub Packages and attach files to the release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, publish and attach
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      PUBLISH: ${{ github.event_name == 'push' || github.event.inputs.publish == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: Check the tag matches the project version
+        run: |
+          version=$(mvn -B -q -ntp help:evaluate -Dexpression=project.version -DforceStdout)
+          echo "Project version ${version}, tag ${TAG}"
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error::Tag ${TAG} does not match project version ${version}"
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Build and test with the release profile
+        run: mvn -B -ntp -Prelease verify
+
+      - name: Publish to GitHub Packages
+        if: env.PUBLISH == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          mvn -B -ntp -Prelease deploy -DskipTests
+          -DaltDeploymentRepository=github::https://maven.pkg.github.com/${{ github.repository }}
+
+      - name: Collect release files
+        run: |
+          mkdir -p dist
+          for module in entra-security-core entra-security-spring-boot-starter entra-security-test; do
+            cp "${module}/target/${module}-${VERSION}.jar" \
+               "${module}/target/${module}-${VERSION}-sources.jar" \
+               "${module}/target/${module}-${VERSION}-javadoc.jar" dist/
+            cp "${module}/target/bom.json" "dist/${module}-${VERSION}-sbom.cdx.json"
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+          ls -l dist
+
+      - name: Attach files to the GitHub release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "${TAG}" > /dev/null 2>&1; then
+            gh release create "${TAG}" --verify-tag --title "${TAG}" --notes "See CHANGELOG.md for details."
+          fi
+          gh release upload "${TAG}" dist/* --clobber
+
+      - name: Keep the files as a build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ env.TAG }}
+          path: dist/
+          retention-days: 14
