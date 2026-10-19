@@ -42,13 +42,16 @@ removes its signing key in the meantime. Entra rotates keys with weeks of overla
 tenant and timestamp checks) and the real converter (classification and role mapping) 2 000 times after a
 500-iteration warm-up, with the JWKS served once by a local mock.
 
-Run on an 8-vCPU Intel Xeon build box, JDK 21:
+Three consecutive runs on an 8-vCPU Intel Xeon build box, OpenJDK 21.0.12, 19 Oct 2026 (median of the three runs per column, range in brackets):
 
 | Scenario | p50 | p95 | p99 | max |
 |---|---|---|---|---|
-| First request after start (JWKS pre-warmed) | 0.68 ms | - | - | - |
-| New token each time (signature + claims + roles) | 0.076 ms | 0.141 ms | 0.206 ms | 2.6 ms |
-| Same token again (both caches hit) | 0.003 ms | 0.004 ms | 0.006 ms | 2.1 ms |
+| First request after start (JWKS pre-warmed, JVM cold) | 9.9 ms (9.1–10.3) | - | - | - |
+| New token each time (signature + claims + roles) | 0.080 ms (0.078–0.081) | 0.155 ms (0.134–0.194) | 0.229 ms (0.172–0.297) | 2.9 ms (2.5–3.8) |
+| Same token again (both caches hit) | 0.003 ms | 0.004 ms (0.004–0.005) | 0.008 ms (0.006–0.012) | 0.07 ms (0.03–1.8) |
+
+The first request pays for JIT warm-up and crypto provider initialisation in the JVM, not for a network call: the
+JWKS is already in memory. Every later request stays far below the 5 ms target.
 
 The test fails the build if the first request takes 300 ms or more, if new-token p99 reaches 50 ms, or if
 cached p99 reaches 5 ms. The JWKS endpoint is called exactly once.

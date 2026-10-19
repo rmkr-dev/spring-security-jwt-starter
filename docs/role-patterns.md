@@ -1,4 +1,4 @@
-# Authorization
+# Role patterns and @Secured
 
 ```mermaid
 flowchart LR
@@ -21,6 +21,15 @@ roles the caller had.
 @Secured("ROLE_ORDERS_READ")
 List<Order> orders() { ... }
 ```
+
+| Annotation | Servlet | WebFlux | Use it for |
+|---|---|---|---|
+| `@Secured("ROLE_X")` | yes | yes (added by the starter) | Default choice: one or more roles, readable in review |
+| `@PreAuthorize("hasRole('X') and ...")` | yes | yes | Conditions on arguments or the principal |
+| `@RolesAllowed("X")` | yes | no | JSR-250 codebases on servlet only |
+
+Roles are mapped from groups, app roles and client ids ([user-flow.md](user-flow.md),
+[service-to-service.md](service-to-service.md)).
 
 ## Role-pattern allow (off by default)
 
