@@ -58,14 +58,23 @@ public final class TtlCache<K, V> {
      * stored when the time-to-live is zero.
      */
     public void put(K key, V value) {
-        if (value == null || ttl.isZero()) {
+        put(key, value, ttl);
+    }
+
+    /**
+     * Stores {@code value} for {@code entryTtl}, capped at the configured time-to-live. {@code null} values and
+     * zero or negative durations are ignored.
+     */
+    public void put(K key, V value, Duration entryTtl) {
+        if (value == null || entryTtl == null || entryTtl.isZero() || entryTtl.isNegative() || ttl.isZero()) {
             return;
         }
+        Duration effective = entryTtl.compareTo(ttl) > 0 ? ttl : entryTtl;
         Instant now = clock.instant();
         if (entries.size() >= maxEntries) {
             evict(now);
         }
-        entries.put(key, new Entry<>(value, now.plus(ttl)));
+        entries.put(key, new Entry<>(value, now.plus(effective)));
     }
 
     public int size() {

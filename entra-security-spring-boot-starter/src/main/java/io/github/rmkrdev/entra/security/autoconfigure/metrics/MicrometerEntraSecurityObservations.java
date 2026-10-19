@@ -17,6 +17,8 @@ final class MicrometerEntraSecurityObservations implements EntraSecurityObservat
     static final String GRAPH_LOOKUPS = "entra.security.graph.lookups";
     static final String TOKEN_ACQUISITIONS = "entra.security.token.acquisitions";
     static final String JWKS_REFRESHES = "entra.security.jwks.refreshes";
+    static final String INTROSPECTIONS = "entra.security.introspection.requests";
+    private static final Set<String> INTROSPECTION_RESULTS = Set.of("active", "inactive", "error", "rejected");
 
     private static final Set<String> CREDENTIALS = Set.of("client_secret", "certificate", "workload_identity");
     private static final Set<String> GRANTS = Set.of(GRANT_CLIENT_CREDENTIALS, GRANT_ON_BEHALF_OF);
@@ -52,6 +54,12 @@ final class MicrometerEntraSecurityObservations implements EntraSecurityObservat
     public void jwksRefresh(boolean success, Duration duration) {
         timer(JWKS_REFRESHES, "Fetches of the tenant JWKS document", "result", result(success))
                 .record(duration(duration));
+    }
+
+    @Override
+    public void introspection(String result, Duration duration) {
+        timer(INTROSPECTIONS, "Remote token checks (introspection or userinfo)", "result",
+                INTROSPECTION_RESULTS.contains(result) ? result : "error").record(duration(duration));
     }
 
     private Timer timer(String name, String description, String... tags) {

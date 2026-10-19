@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -33,11 +34,13 @@ import io.github.rmkrdev.entra.security.core.authority.EntraAuthorityMapper;
 import io.github.rmkrdev.entra.security.core.graph.CachingGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.GraphGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.GroupMembershipResolver;
+import io.github.rmkrdev.entra.security.core.introspect.TokenIntrospector;
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtAuthenticationConverter;
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtDecoders;
 import io.github.rmkrdev.entra.security.core.jwt.EntraTokenClassifier;
 import io.github.rmkrdev.entra.security.core.jwt.SafeClaimLogger;
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
+import io.github.rmkrdev.entra.security.core.token.EntraTokenProvider;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsAccessDeniedHandler;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsAuthenticationEntryPoint;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsWriter;
@@ -88,6 +91,22 @@ public class EntraSecurityAutoConfiguration {
                 observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
     }
 
+    /**
+     * The remote token check for {@code entra.security.validation.mode} introspection and hybrid, with its cache
+     * and circuit breaker. Not created in the default jwks mode.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnExpression("'${entra.security.validation.mode:jwks}'.toLowerCase() != 'jwks'")
+    public TokenIntrospector entraTokenIntrospector(EntraSecurityProperties properties, EntraEndpoints endpoints,
+            ObjectProvider<EntraTokenProviders> tokenProviders, ObjectProvider<EntraSecurityObservations> observations) {
+        boolean bearer = properties.getValidation().getIntrospection().getAuthMethod()
+                == EntraSecurityProperties.IntrospectionAuthMethod.BEARER;
+        EntraTokenProvider appTokens = bearer ? tokenProviders.getObject().applicationTokenProvider() : null;
+        return EntraValidation.introspector(properties, endpoints, appTokens, Clock.systemUTC(),
+                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public EntraTokenClassifier entraTokenClassifier() {
@@ -121,9 +140,10 @@ public class EntraSecurityAutoConfiguration {
         @ConditionalOnMissingBean
         public JwtDecoder entraJwtDecoder(JWKSource<SecurityContext> entraJwkSource,
                 EntraSecurityProperties properties, EntraEndpoints endpoints,
+                ObjectProvider<TokenIntrospector> introspector,
                 ObjectProvider<EntraSecurityObservations> observations) {
-            JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, endpoints.issuers(),
-                    properties.resolveAudiences(), properties.resolveRequiredTenantId(), properties.getClockSkew());
+            JwtDecoder decoder = EntraValidation.decoder(properties, endpoints, entraJwkSource,
+                    introspector.getIfAvailable());
             return ObservingJwtDecoder.wrap(decoder,
                     observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
         }

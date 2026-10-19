@@ -64,4 +64,13 @@ public interface EntraSecurityObservations {
      */
     default void jwksRefresh(boolean success, Duration duration) {
     }
+
+    /**
+     * A remote token check (introspection or userinfo). Cache hits are not reported.
+     *
+     * @param result bounded label: {@code active}, {@code inactive}, {@code error} or {@code rejected} (circuit
+     *               open)
+     */
+    default void introspection(String result, Duration duration) {
+    }
 }
