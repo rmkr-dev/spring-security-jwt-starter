@@ -1,7 +1,8 @@
 # Observability and auth timing
 
-Every API call that carries a bearer token (or is rejected for lacking one) gets its authentication work timed:
-token validation, role mapping, the Graph overage lookup and authorization.
+Every request that carries a bearer token, or is rejected for lacking one, has its authentication work timed: token
+validation, role mapping, the Graph overage lookup and authorization. Each decision produces a
+`Server-Timing` header, a timer sample and one audit line.
 
 ```mermaid
 sequenceDiagram
@@ -10,13 +11,18 @@ sequenceDiagram
     participant B as Bearer token filter
     participant A as Authorization
     participant E as End filter / 401-403 handler
+    participant O as Outputs
     C->>S: request
     S->>B: start clock
     B->>A: validate + map roles (+ Graph)
     A->>E: allowed / denied
-    E-->>C: Server-Timing: auth;dur=0.412
-    E->>E: entra.security.auth.duration
+    E-->>C: Server-Timing: auth#59;dur=0.412
+    E->>O: entra.security.auth.duration timer
+    E->>O: audit line on stdout (entra.security.audit)
+    E->>O: AuthDecisionListener beans
 ```
+
+## Auth timing
 
 | Output | Default | Switch |
 |---|---|---|
@@ -54,3 +60,37 @@ ts=2026-10-19T06:31:04.433Z traceId=1039e7e0-… outcome=forbidden reason=access
 
 Tokens, names, UPNs and e-mail addresses are never logged. To silence or route the lines on their own, set
 `logging.level.entra.security.audit=OFF` or give that logger its own appender.
+
+## Meters
+
+All meters use the `entra.security` prefix. Tags are a fixed set: no object id, token, tenant or group id is ever a
+tag value. Add your own common tags with `entra.security.monitoring.tags.*`.
+
+| Meter | Type | Tags |
+| --- | --- | --- |
+| `entra.security.auth.duration` | timer (percentile histogram) | `outcome`, `token_type`, `validation_mode` |
+| `entra.security.jwt.authentications` | counter | `result` (`success`/`failure`), `reason` |
+| `entra.security.jwks.refreshes` | timer | `result` |
+| `entra.security.token.acquisitions` | timer | `result`, `credential` (`client_secret`, `certificate`, `workload_identity`), `grant` (`client_credentials`, `on_behalf_of`) |
+| `entra.security.graph.lookups` | timer | `result` |
+| `entra.security.introspection.requests` | timer | `result` (`active`, `inactive`, `error`, `rejected`) |
+
+Failure reasons: `missing`, `expired`, `not_yet_valid`, `invalid_issuer`, `invalid_audience`, `invalid_tenant`,
+`missing_claims`, `invalid_signature`, `unknown_key`, `malformed`, `client_not_allowed` and `invalid_token`.
+JWKS refreshes, Graph lookups and token calls are recorded only when the starter actually makes the HTTP call, not
+when it serves a cached result.
+
+## Datadog
+
+Datadog is the documented backend. Configuration (API key from a Secret, step, tags) is in
+[deployment.md](deployment.md#metrics-with-datadog). With `micrometer-registry-datadog` on the classpath the
+starter adds client-side p50/p95/p99 to the `entra.security` timers. Turn that off with
+`entra.security.monitoring.datadog.percentiles=false`.
+
+## Prometheus and Grafana (opt-in)
+
+Prometheus is used only when `micrometer-registry-prometheus` is on the classpath **and**
+`entra.security.monitoring.prometheus.enabled=true`. Otherwise the entra meters are filtered out of any Prometheus
+registry. Expose `/actuator/prometheus` as usual and import the sample dashboard
+[grafana/entra-security-dashboard.json](grafana/entra-security-dashboard.json): decisions per second by outcome,
+auth p50/p95/p99, JWKS refreshes and outbound token acquisitions.

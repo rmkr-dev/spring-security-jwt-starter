@@ -163,7 +163,7 @@ before they expire.
 ### On-behalf-of routes
 
 A route can point at a client with `flow: on-behalf-of`. The request then carries a token for the calling
-user, exchanged from the incoming token. See the on-behalf-of section of the [README](../README.md). A route `scope` is
+user, exchanged from the incoming token. See [on-behalf-of.md](on-behalf-of.md). A route `scope` is
 used in place of the client's delegated scopes.
 
 ## Testing locally
