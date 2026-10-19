@@ -64,6 +64,12 @@
              the sample applications are not gated. -->
         <coverage.line.minimum>0.00</coverage.line.minimum>
         <coverage.branch.minimum>0.00</coverage.branch.minimum>
+
+        <!-- Set by the JaCoCo agent; empty when JaCoCo is skipped. -->
+        <argLine></argLine>
+        <!-- Extra JVM options for tests. Modules that test custom host names point jdk.net.hosts.file at a
+             test-only hosts file so those names resolve to the loopback mocks. -->
+        <surefire.extraArgLine></surefire.extraArgLine>
     </properties>
 
     <dependencyManagement>
@@ -130,6 +136,9 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven-surefire-plugin.version}</version>
+                    <configuration>
+                        <argLine>@{argLine} ${surefire.extraArgLine}</argLine>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

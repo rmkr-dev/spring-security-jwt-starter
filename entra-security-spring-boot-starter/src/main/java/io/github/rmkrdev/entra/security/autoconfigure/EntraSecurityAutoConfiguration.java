@@ -59,21 +59,31 @@ import io.github.rmkrdev.entra.security.core.web.ProblemDetailsWriter;
 @EnableConfigurationProperties(EntraSecurityProperties.class)
 public class EntraSecurityAutoConfiguration {
 
+    /**
+     * The authority endpoints, resolved once from {@code entra.security.authority.*} and, when enabled, the OIDC
+     * discovery document.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public EntraEndpoints entraEndpoints(EntraSecurityProperties properties) {
+        return EntraEndpoints.resolve(properties, EntraTokenProviders.defaultRestClient(properties));
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public EntraTokenProviders entraTokenProviders(EntraSecurityProperties properties, Environment environment,
             ObjectProvider<EntraSecurityObservations> observations,
-            ObjectProvider<KeyVaultCredentialFactory> keyVaultCredentials) {
+            ObjectProvider<KeyVaultCredentialFactory> keyVaultCredentials, EntraEndpoints endpoints) {
         return new EntraTokenProviders(properties, environment, EntraTokenProviders.defaultRestClient(properties),
                 Clock.systemUTC(), observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP),
-                keyVaultCredentials.getIfAvailable());
+                keyVaultCredentials.getIfAvailable(), endpoints);
     }
 
     @Bean
     @ConditionalOnMissingBean(name = "entraJwkSource")
-    public JWKSource<SecurityContext> entraJwkSource(EntraSecurityProperties properties,
+    public JWKSource<SecurityContext> entraJwkSource(EntraSecurityProperties properties, EntraEndpoints endpoints,
             ObjectProvider<EntraSecurityObservations> observations) {
-        return EntraJwtDecoders.jwkSource(properties.resolveJwkSetUri(), properties.getCache().getJwksTtl(),
+        return EntraJwtDecoders.jwkSource(endpoints.jwksUri(), properties.getCache().getJwksTtl(),
                 properties.getHttp().getReadTimeout(),
                 observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
     }
@@ -110,8 +120,9 @@ public class EntraSecurityAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean
         public JwtDecoder entraJwtDecoder(JWKSource<SecurityContext> entraJwkSource,
-                EntraSecurityProperties properties, ObjectProvider<EntraSecurityObservations> observations) {
-            JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, properties.resolveIssuers(),
+                EntraSecurityProperties properties, EntraEndpoints endpoints,
+                ObjectProvider<EntraSecurityObservations> observations) {
+            JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, endpoints.issuers(),
                     properties.resolveAudiences(), properties.resolveRequiredTenantId(), properties.getClockSkew());
             return ObservingJwtDecoder.wrap(decoder,
                     observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
@@ -122,11 +133,12 @@ public class EntraSecurityAutoConfiguration {
         @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "graph.overage-enabled",
                 havingValue = "true")
         public GroupMembershipResolver entraGroupMembershipResolver(EntraSecurityProperties properties,
-                EntraTokenProviders tokenProviders, ObjectProvider<EntraSecurityObservations> observations) {
+                EntraEndpoints endpoints, EntraTokenProviders tokenProviders,
+                ObjectProvider<EntraSecurityObservations> observations) {
             EntraSecurityProperties.Graph graph = properties.getGraph();
             GraphGroupMembershipResolver graphResolver = new GraphGroupMembershipResolver(
                     EntraTokenProviders.defaultRestClient(properties), tokenProviders.applicationTokenProvider(),
-                    graph.getBaseUrl(), graph.getScope(), graph.getMaxPages(),
+                    endpoints.graphBaseUrl(), graph.getScope(), graph.getMaxPages(),
                     observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
             return new CachingGroupMembershipResolver(graphResolver, graph.getCacheTtl(),
                     graph.getCacheMaxEntries());

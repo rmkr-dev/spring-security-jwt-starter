@@ -37,6 +37,7 @@ public class EntraTokenProviders {
     private final Clock clock;
     private final EntraSecurityObservations observations;
     private final KeyVaultCredentialFactory keyVaultCredentials;
+    private final EntraEndpoints endpoints;
 
     public EntraTokenProviders(EntraSecurityProperties properties, Environment environment) {
         this(properties, environment, defaultRestClient(properties), Clock.systemUTC());
@@ -62,7 +63,18 @@ public class EntraTokenProviders {
      */
     public EntraTokenProviders(EntraSecurityProperties properties, Environment environment, RestClient restClient,
             Clock clock, EntraSecurityObservations observations, KeyVaultCredentialFactory keyVaultCredentials) {
+        this(properties, environment, restClient, clock, observations, keyVaultCredentials, null);
+    }
+
+    /**
+     * @param endpoints the resolved authority endpoints; {@code null} resolves them from {@code properties}
+     *                  without OIDC discovery
+     */
+    public EntraTokenProviders(EntraSecurityProperties properties, Environment environment, RestClient restClient,
+            Clock clock, EntraSecurityObservations observations, KeyVaultCredentialFactory keyVaultCredentials,
+            EntraEndpoints endpoints) {
         this.properties = properties;
+        this.endpoints = endpoints != null ? endpoints : EntraEndpoints.of(properties);
         this.environment = environment;
         this.restClient = restClient;
         this.clock = clock;
@@ -132,13 +144,25 @@ public class EntraTokenProviders {
         return effective;
     }
 
+    /**
+     * The token endpoint for a credential. A configured or discovered {@code authority.token-endpoint} is used as is
+     * for this API's tenant. Otherwise the endpoint is built from the authority host (for workload identity,
+     * {@code AZURE_AUTHORITY_HOST} when the webhook sets it) and the tenant path, or the credential's own tenant
+     * when that differs.
+     */
     private URI tokenEndpoint(Credential effective) {
         boolean workload = effective.getType() == CredentialType.WORKLOAD_IDENTITY;
         String tenantId = firstText(effective.getTenantId(), workload ? env("AZURE_TENANT_ID") : null,
                 properties.getTenantId());
-        String authority = firstText(workload ? env("AZURE_AUTHORITY_HOST") : null,
-                properties.getAuthorityHost().toString());
-        return ClientCredentialsTokenProvider.tokenEndpoint(URI.create(authority), tenantId);
+        boolean ownTenant = tenantId == null || tenantId.equalsIgnoreCase(properties.getTenantId());
+        if (ownTenant && endpoints.isTokenEndpointCustomized()) {
+            return endpoints.tokenEndpoint();
+        }
+        boolean hostConfigured = properties.getAuthority().getHost() != null;
+        String authority = firstText(workload && !hostConfigured ? env("AZURE_AUTHORITY_HOST") : null,
+                endpoints.authorityHost().toString());
+        return ClientCredentialsTokenProvider.tokenEndpoint(URI.create(authority),
+                ownTenant ? endpoints.tenantPath() : tenantId);
     }
 
     private EntraCredential credential(Credential credential) {

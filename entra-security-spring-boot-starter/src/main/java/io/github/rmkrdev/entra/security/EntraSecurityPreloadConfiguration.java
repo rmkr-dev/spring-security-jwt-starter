@@ -12,6 +12,7 @@ import org.springframework.core.type.AnnotationMetadata;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 
+import io.github.rmkrdev.entra.security.autoconfigure.EntraEndpoints;
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties;
 
 /**
@@ -36,7 +37,7 @@ public class EntraSecurityPreloadConfiguration implements ImportAware {
     @Bean
     public EntraSecurityPreloader entraSecurityPreloader(
             ObjectProvider<JWKSource<SecurityContext>> jwkSource,
-            ObjectProvider<EntraSecurityProperties> properties) {
-        return new EntraSecurityPreloader(jwkSource, properties, preloadJwks, failOnJwksError);
+            ObjectProvider<EntraSecurityProperties> properties, ObjectProvider<EntraEndpoints> endpoints) {
+        return new EntraSecurityPreloader(jwkSource, properties, preloadJwks, failOnJwksError, endpoints);
     }
 }

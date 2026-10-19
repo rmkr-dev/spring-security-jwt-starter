@@ -18,6 +18,9 @@
     <properties>
         <coverage.line.minimum>0.91</coverage.line.minimum>
         <coverage.branch.minimum>0.70</coverage.branch.minimum>
+        <!-- Resolve the custom host names used by the tests (sovereign, B2C-style, external and in-cluster
+             hosts) to the loopback mocks. -->
+        <surefire.extraArgLine>-Djdk.net.hosts.file=${project.basedir}/src/test/resources/test-hosts</surefire.extraArgLine>
     </properties>
 
     <dependencies>

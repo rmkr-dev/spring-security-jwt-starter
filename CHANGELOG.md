@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Custom tenant and authority endpoints under `entra.security.authority.*`, all optional and bindable from a
+  ConfigMap or environment variables: `host` (sovereign clouds, B2C, CIAM, custom domains), `tenant-path`
+  (for example `contoso.onmicrosoft.com/B2C_1_signin`), `issuers`, `jwks-uri`, `token-endpoint`,
+  `authorize-endpoint`, `metadata-uri`, `userinfo-endpoint`, `graph-base-url` and `allow-http`.
+  - `authority.discovery.enabled` (or setting `metadata-uri`) fills every endpoint that is not configured from
+    the OIDC discovery document at startup. `authority.discovery.required` (default `true`) decides whether a
+    failed fetch stops startup or falls back to the defaults.
+  - Explicit values win over discovered ones, and `authority.*` wins over the older top-level `authority-host`,
+    `jwk-set-uri` and `issuers`, which keep working. With nothing set the endpoints are unchanged.
+  - URLs are validated at startup: absolute, `https` (plain `http` only on loopback or with
+    `authority.allow-http=true`), and a tenant path without `..`, `?` or `#`. Discovered URLs get the same checks.
+  - `EntraEndpoints` bean with the resolved values, used by the decoder, JWKS source, token providers, Graph
+    lookups and the Graph health indicator.
+- `EntraMockAuthority.start(String publicHost)` serves the mock authority under a custom host name. Its
+  discovery document now also lists `authorization_endpoint`.
+
+### Changed
+
+- Tests resolve host names through a test-only hosts file (`-Djdk.net.hosts.file`) in the starter and test
+  modules, so custom authority and service host names reach local mocks and nothing reaches the network.
+
 ## [0.6.0] - 2026-10-18
 
 ### Added
