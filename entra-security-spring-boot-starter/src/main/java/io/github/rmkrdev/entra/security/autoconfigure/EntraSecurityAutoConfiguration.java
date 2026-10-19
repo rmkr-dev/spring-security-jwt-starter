@@ -31,6 +31,7 @@ import com.nimbusds.jose.proc.SecurityContext;
 import io.github.rmkrdev.entra.security.autoconfigure.keyvault.KeyVaultCredentialFactory;
 import io.github.rmkrdev.entra.security.autoconfigure.metrics.ObservingJwtDecoder;
 import io.github.rmkrdev.entra.security.core.authority.EntraAuthorityMapper;
+import io.github.rmkrdev.entra.security.core.decision.AuditLogger;
 import io.github.rmkrdev.entra.security.core.decision.AuthDecisionListener;
 import io.github.rmkrdev.entra.security.core.decision.AuthDecisionRecorder;
 import io.github.rmkrdev.entra.security.core.graph.CachingGroupMembershipResolver;
@@ -119,6 +120,9 @@ public class EntraSecurityAutoConfiguration {
         EntraSecurityObservations metrics = observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP);
         List<AuthDecisionListener> all = new java.util.ArrayList<>();
         all.add(metrics::authDecision);
+        if (properties.getAudit().isEnabled()) {
+            all.add(new AuditLogger(properties.getAudit().getFormat()));
+        }
         listeners.orderedStream().forEach(all::add);
         return new AuthDecisionRecorder(properties.getValidation().getMode().name(), all,
                 properties.getObservability().isServerTiming(), Clock.systemUTC());

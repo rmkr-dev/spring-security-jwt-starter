@@ -18,6 +18,7 @@ import org.springframework.validation.annotation.Validated;
 
 import io.github.rmkrdev.entra.security.core.authority.CompactRoleMappings;
 import io.github.rmkrdev.entra.security.core.authority.CompactRoleMappings.KeyType;
+import io.github.rmkrdev.entra.security.core.decision.AuditLogger;
 import io.github.rmkrdev.entra.security.core.outbound.OutboundTarget;
 
 import jakarta.validation.Valid;
@@ -153,6 +154,8 @@ public class EntraSecurityProperties implements Validator {
 
     @Valid
     private final Observability observability = new Observability();
+
+    private final Audit audit = new Audit();
 
     // ---------------------------------------------------------------- derived values
 
@@ -551,6 +554,10 @@ public class EntraSecurityProperties implements Validator {
 
     public Observability getObservability() {
         return observability;
+    }
+
+    public Audit getAudit() {
+        return audit;
     }
 
     // ---------------------------------------------------------------- nested types
@@ -1859,6 +1866,32 @@ public class EntraSecurityProperties implements Validator {
 
         public void setReadTimeout(Duration readTimeout) {
             this.readTimeout = readTimeout;
+        }
+    }
+
+    /** The audit line written for each auth decision. */
+    public static class Audit {
+
+        /** Write one log line per auth decision to the {@code entra.security.audit} logger at INFO. */
+        private boolean enabled = true;
+
+        /** {@code json} (one JSON object per line) or {@code flat} (one {@code key=value} line). */
+        private AuditLogger.Format format = AuditLogger.Format.JSON;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public AuditLogger.Format getFormat() {
+            return format;
+        }
+
+        public void setFormat(AuditLogger.Format format) {
+            this.format = format;
         }
     }
 

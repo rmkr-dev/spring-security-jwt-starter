@@ -40,6 +40,7 @@ import io.micrometer.core.instrument.Timer;
         "management.endpoints.web.exposure.include=health,metrics",
         "entra.security.public-paths=/actuator/health,/actuator/health/**,/public/**" })
 @AutoConfigureMockMvc
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class EntraObservabilityIntegrationTest {
 
     private static final String READERS_GROUP = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -130,6 +131,23 @@ class EntraObservabilityIntegrationTest {
                 unauthenticated + 2);
         assertThat(timerCount("entra.security.auth.duration", "outcome", "forbidden", "token_type", "user"))
                 .isEqualTo(forbidden + 1);
+    }
+
+    @Test
+    void eachDecisionWritesOneAuditLineWithoutTheToken(
+            org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        String token = TOKENS.user().groups(READERS_GROUP).build();
+        mvc.perform(get("/orders?secret=1").header("Authorization", "Bearer " + token)
+                .header("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/admin").header("Authorization", "Bearer " + token)).andExpect(status().isForbidden());
+        String audit = output.getOut().lines().filter(line -> line.contains("entra.security.audit"))
+                .reduce("", (a, b) -> a + b + "\n");
+        assertThat(audit).contains("\"traceId\":\"4bf92f3577b34da6a3ce929d0e0e4736\"")
+                .contains("\"outcome\":\"success\"").contains("\"path\":\"/orders\"")
+                .contains("\"outcome\":\"forbidden\"").contains("\"roles\":[\"ROLE_ORDERS_READ\"")
+                .contains("\"authMs\":").doesNotContain(token).doesNotContain("secret=1")
+                .doesNotContain("test.user@contoso.example").doesNotContain("Test User");
     }
 
     @Test
