@@ -8,6 +8,7 @@ import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -37,6 +38,7 @@ public class EntraHealthAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(name = "entraJwksHealthIndicator")
     @ConditionalOnBean(name = "entraJwkSource")
+    @ConditionalOnExpression("'${entra.security.validation.mode:jwks}'.toLowerCase() != 'introspection'")
     public HealthIndicator entraJwksHealthIndicator(
             @Qualifier("entraJwkSource") JWKSource<SecurityContext> entraJwkSource) {
         return new EntraJwksHealthIndicator(entraJwkSource);

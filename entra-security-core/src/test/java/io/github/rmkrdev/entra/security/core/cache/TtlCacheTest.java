@@ -29,6 +29,23 @@ class TtlCacheTest {
         assertThat(cache.size()).isLessThanOrEqualTo(2);
     }
 
+    @Test
+    void perEntryTtlIsCappedAtTheCacheTtl() {
+        MutableClock clock = new MutableClock();
+        TtlCache<String, String> cache = new TtlCache<>(Duration.ofMinutes(1), 10, clock);
+        cache.put("short", "s", Duration.ofSeconds(10));
+        cache.put("long", "l", Duration.ofHours(1));
+        cache.put("zero", "z", Duration.ZERO);
+        cache.put("negative", "n", Duration.ofSeconds(-1));
+        cache.put("none", "x", null);
+        assertThat(cache.size()).isEqualTo(2);
+        clock.advance(Duration.ofSeconds(11));
+        assertThat(cache.getIfPresent("short")).isNull();
+        assertThat(cache.getIfPresent("long")).isEqualTo("l");
+        clock.advance(Duration.ofMinutes(1));
+        assertThat(cache.getIfPresent("long")).isNull();
+    }
+
     static final class MutableClock extends Clock {
 
         private Instant now = Instant.parse("2026-01-01T00:00:00Z");

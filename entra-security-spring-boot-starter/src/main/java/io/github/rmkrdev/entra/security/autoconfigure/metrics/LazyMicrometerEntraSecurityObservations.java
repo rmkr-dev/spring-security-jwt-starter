@@ -45,6 +45,11 @@ final class LazyMicrometerEntraSecurityObservations implements EntraSecurityObse
         delegate().jwksRefresh(success, duration);
     }
 
+    @Override
+    public void introspection(String result, Duration duration) {
+        delegate().introspection(result, duration);
+    }
+
     private EntraSecurityObservations delegate() {
         EntraSecurityObservations current = delegate;
         if (current != null) {

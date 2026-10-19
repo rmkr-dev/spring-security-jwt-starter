@@ -35,7 +35,7 @@ import io.github.rmkrdev.entra.security.core.graph.CachingReactiveGroupMembershi
 import io.github.rmkrdev.entra.security.core.graph.GroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.ReactiveGraphGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.ReactiveGroupMembershipResolver;
-import io.github.rmkrdev.entra.security.core.jwt.EntraJwtDecoders;
+import io.github.rmkrdev.entra.security.core.introspect.TokenIntrospector;
 import io.github.rmkrdev.entra.security.core.jwt.EntraReactiveJwtDecoder;
 import io.github.rmkrdev.entra.security.core.jwt.EntraTokenClassifier;
 import io.github.rmkrdev.entra.security.core.jwt.ReactiveEntraJwtAuthenticationConverter;
@@ -69,9 +69,10 @@ public class EntraReactiveSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public ReactiveJwtDecoder entraReactiveJwtDecoder(JWKSource<SecurityContext> entraJwkSource,
             EntraSecurityProperties properties, EntraEndpoints endpoints,
+            ObjectProvider<TokenIntrospector> introspector,
             ObjectProvider<EntraSecurityObservations> observations) {
-        JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, endpoints.issuers(),
-                properties.resolveAudiences(), properties.resolveRequiredTenantId(), properties.getClockSkew());
+        JwtDecoder decoder = EntraValidation.decoder(properties, endpoints, entraJwkSource,
+                introspector.getIfAvailable());
         return new EntraReactiveJwtDecoder(ObservingJwtDecoder.wrap(decoder,
                 observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP)));
     }

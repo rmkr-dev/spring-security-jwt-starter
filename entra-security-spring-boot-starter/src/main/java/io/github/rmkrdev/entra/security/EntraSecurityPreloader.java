@@ -70,7 +70,8 @@ public class EntraSecurityPreloader implements SmartInitializingSingleton {
                 config.getGraph().isOverageEnabled(),
                 config.getOutbound().getClients().keySet());
         JWKSource<SecurityContext> source = jwkSource.getIfAvailable();
-        if (!preloadJwks || source == null) {
+        if (!preloadJwks || source == null
+                || config.getValidation().getMode() == EntraSecurityProperties.ValidationMode.INTROSPECTION) {
             return;
         }
         try {

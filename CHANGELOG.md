@@ -8,6 +8,34 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Optional remote token validation with `entra.security.validation.mode`: `jwks` (default, unchanged),
+  `introspection` or `hybrid`. JWKS stays the recommended and fastest option for Entra ID tokens.
+  - Microsoft Entra ID has no RFC 7662 introspection endpoint. `introspection.type=rfc7662` (the default)
+    is meant for gateways and custom authorization servers. `introspection.type=userinfo` presents the
+    token to a userinfo-style endpoint (Graph `/oidc/userinfo` by default, or `/v1.0/me`) for tokens whose
+    audience is Microsoft Graph. That check proves who the user is, not that the token was issued for this
+    API.
+  - `hybrid-strategy=both` (default) validates with JWKS and then requires the remote check to report the
+    token active, which catches revoked tokens. `fallback` validates JWTs with JWKS and sends only opaque
+    tokens to the remote check. A JWT that fails JWKS validation is never retried remotely.
+  - RFC 7662 settings: `introspection.uri` (defaults to the discovered `introspection_endpoint`),
+    `auth-method` (`client-secret-basic`, `client-secret-post`, `bearer` with an app-only token for
+    `introspection.scope`, or `none`), `client-id`, `client-secret`, `token-type-hint`, `validate-claims`
+    (issuer, audience, tenant and time checks on the returned claims) and `claims-mapping`. By default
+    `scope` is mapped to `scp` and `client_id` to `azp`. For userinfo, `id` is mapped to `oid`,
+    `userPrincipalName` to `preferred_username` and `displayName` to `name`.
+  - Active results are cached until min(`exp`, `positive-cache-ttl`, default `5m`), inactive results for
+    `negative-cache-ttl` (default `10s`), with up to `cache-max-entries` entries keyed by a SHA-256 hash of
+    the token. `connect-timeout` (`2s`) and `read-timeout` (`3s`) bound each call. After
+    `failure-threshold` (5) consecutive failures a circuit breaker opens for `open-duration` (`30s`). While
+    it is open, tokens that aren't cached are rejected with `401`, so the check fails closed.
+  - Core: `TokenIntrospector`, `Rfc7662TokenIntrospector`, `UserInfoTokenIntrospector`,
+    `CachingTokenIntrospector`, `IntrospectionCircuitBreaker`, `IntrospectionJwtDecoder` and
+    `HybridJwtDecoder`. The starter exposes the check as a replaceable `TokenIntrospector` bean.
+  - Metric `entra.security.introspection.requests` (timer, tag `result`: `active`, `inactive`, `error`,
+    `rejected`). The JWKS health indicator and the JWKS preload are skipped in `introspection` mode.
+- `TtlCache.put(key, value, ttl)` for per-entry lifetimes.
+
 - Custom tenant and authority endpoints under `entra.security.authority.*`, all optional and bindable from a
   ConfigMap or environment variables: `host` (sovereign clouds, B2C, CIAM, custom domains), `tenant-path`
   (for example `contoso.onmicrosoft.com/B2C_1_signin`), `issuers`, `jwks-uri`, `token-endpoint`,

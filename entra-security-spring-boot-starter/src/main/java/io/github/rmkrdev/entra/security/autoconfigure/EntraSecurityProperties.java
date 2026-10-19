@@ -120,6 +120,10 @@ public class EntraSecurityProperties implements Validator {
     @Valid
     private final Authority authority = new Authority();
 
+    /** How bearer tokens are validated: locally with JWKS (default), remotely, or both. */
+    @Valid
+    private final Validation validation = new Validation();
+
     @Valid
     private final User user = new User();
 
@@ -280,6 +284,12 @@ public class EntraSecurityProperties implements Validator {
         validateCompact(errors, "appRoleMappingsCompact", properties::resolveAppRoleMappings);
         validateCompact(errors, "clientRoleMappingsCompact", properties::resolveClientRoleMappings);
         properties.getAuthority().validate(errors);
+        String introspectionUri = Authority.uriProblem(properties.getValidation().getIntrospection().getUri(),
+                properties.getAuthority().isAllowHttp());
+        if (introspectionUri != null) {
+            errors.rejectValue("validation.introspection.uri", "invalidIntrospectionUri",
+                    PREFIX + ".validation.introspection.uri " + introspectionUri);
+        }
     }
 
     private static void validateCompact(Errors errors, String field, Runnable resolve) {
@@ -303,6 +313,43 @@ public class EntraSecurityProperties implements Validator {
     public boolean isTenantIdUsableForIssuers() {
         return tenantId == null || !issuers.isEmpty() || !authority.getIssuers().isEmpty() || isDiscoveryActive()
                 || GUID.matcher(tenantId).matches() || !isSingleTenant();
+    }
+
+    @AssertTrue(message = "entra.security.validation.introspection.auth-method=bearer requires "
+            + "entra.security.credential.type and entra.security.validation.introspection.scope")
+    public boolean isIntrospectionBearerConfigured() {
+        Introspection introspection = validation.getIntrospection();
+        return validation.getMode() == ValidationMode.JWKS || introspection.getType() != IntrospectionType.RFC7662
+                || introspection.getAuthMethod() != IntrospectionAuthMethod.BEARER
+                || (credential.getType() != CredentialType.NONE && introspection.getScope() != null
+                        && !introspection.getScope().isBlank());
+    }
+
+    @AssertTrue(message = "entra.security.validation.introspection.auth-method client-secret-basic or "
+            + "client-secret-post requires entra.security.validation.introspection.client-secret (or "
+            + "entra.security.credential.client-secret)")
+    public boolean isIntrospectionSecretConfigured() {
+        Introspection introspection = validation.getIntrospection();
+        return validation.getMode() == ValidationMode.JWKS || introspection.getType() != IntrospectionType.RFC7662
+                || (introspection.getAuthMethod() != IntrospectionAuthMethod.CLIENT_SECRET_BASIC
+                        && introspection.getAuthMethod() != IntrospectionAuthMethod.CLIENT_SECRET_POST)
+                || resolveIntrospectionClientSecret() != null;
+    }
+
+    /** The client id for introspection client authentication. */
+    public String resolveIntrospectionClientId() {
+        String id = validation.getIntrospection().getClientId();
+        return id != null && !id.isBlank() ? id : clientId;
+    }
+
+    /** The client secret for introspection client authentication, or {@code null}. */
+    public String resolveIntrospectionClientSecret() {
+        String secret = validation.getIntrospection().getClientSecret();
+        if (secret != null && !secret.isBlank()) {
+            return secret;
+        }
+        String own = credential.getClientSecret();
+        return own != null && !own.isBlank() ? own : null;
     }
 
     @AssertTrue(message = "entra.security.graph.overage-enabled=true requires entra.security.credential.type "
@@ -455,6 +502,10 @@ public class EntraSecurityProperties implements Validator {
 
     public Authority getAuthority() {
         return authority;
+    }
+
+    public Validation getValidation() {
+        return validation;
     }
 
     public User getUser() {
@@ -729,6 +780,274 @@ public class EntraSecurityProperties implements Validator {
 
         public void setRequired(boolean required) {
             this.required = required;
+        }
+    }
+
+    /** How bearer tokens are validated. */
+    public enum ValidationMode {
+        /** Locally, against the signing keys from the JWKS endpoint. Recommended and fastest. */
+        JWKS,
+        /** Remotely, with the introspection (RFC 7662) or userinfo check only. */
+        INTROSPECTION,
+        /** JWKS first, then the remote check (see {@link Validation#getHybridStrategy()}). */
+        HYBRID
+    }
+
+    /** How hybrid validation combines the two checks. */
+    public enum HybridStrategy {
+        /** The token must pass JWKS validation and the remote check (catches revoked tokens). */
+        BOTH,
+        /** Signed JWTs are validated with JWKS only; opaque tokens go to the remote check. */
+        FALLBACK
+    }
+
+    /** Which remote check runs. */
+    public enum IntrospectionType {
+        /** An RFC 7662 token introspection endpoint (gateways and custom authorization servers; not Entra ID). */
+        RFC7662,
+        /** Present the token to a userinfo-style endpoint such as Graph /oidc/userinfo or /v1.0/me. */
+        USERINFO
+    }
+
+    /** How this API authenticates to an RFC 7662 endpoint. */
+    public enum IntrospectionAuthMethod {
+        /** HTTP Basic with client id and secret. */
+        CLIENT_SECRET_BASIC,
+        /** Client id and secret in the form body. */
+        CLIENT_SECRET_POST,
+        /** An app-only bearer token from entra.security.credential for introspection.scope. */
+        BEARER,
+        /** No client authentication. */
+        NONE
+    }
+
+    /** Token validation settings. */
+    public static class Validation {
+
+        /** jwks (default), introspection or hybrid. */
+        @NotNull
+        private ValidationMode mode = ValidationMode.JWKS;
+
+        /** For hybrid: both (default) or fallback. */
+        @NotNull
+        private HybridStrategy hybridStrategy = HybridStrategy.BOTH;
+
+        @Valid
+        private final Introspection introspection = new Introspection();
+
+        public ValidationMode getMode() {
+            return mode;
+        }
+
+        public void setMode(ValidationMode mode) {
+            this.mode = mode;
+        }
+
+        public HybridStrategy getHybridStrategy() {
+            return hybridStrategy;
+        }
+
+        public void setHybridStrategy(HybridStrategy hybridStrategy) {
+            this.hybridStrategy = hybridStrategy;
+        }
+
+        public Introspection getIntrospection() {
+            return introspection;
+        }
+    }
+
+    /** The remote token check used by validation modes introspection and hybrid. */
+    public static class Introspection {
+
+        /** rfc7662 (default) or userinfo. */
+        @NotNull
+        private IntrospectionType type = IntrospectionType.RFC7662;
+
+        /**
+         * Endpoint to call. Defaults to the discovered introspection_endpoint for rfc7662, and to the authority
+         * userinfo endpoint (Graph /oidc/userinfo by default) for userinfo.
+         */
+        private URI uri;
+
+        /** Client authentication for rfc7662. */
+        @NotNull
+        private IntrospectionAuthMethod authMethod = IntrospectionAuthMethod.CLIENT_SECRET_BASIC;
+
+        /** Client id for client-secret-basic/post. Defaults to entra.security.client-id. */
+        private String clientId;
+
+        /** Client secret for client-secret-basic/post. Defaults to entra.security.credential.client-secret. */
+        private String clientSecret;
+
+        /** Scope of the app-only token for auth-method bearer, for example api://gateway/.default. */
+        private String scope;
+
+        /** token_type_hint sent with rfc7662 requests. Empty to omit it. */
+        private String tokenTypeHint = "access_token";
+
+        /**
+         * Check exp/nbf, iss, aud and tid of the introspected claims with the same rules as JWKS validation.
+         * Applies to rfc7662; userinfo checks only the timestamps, since those tokens are for Graph.
+         */
+        private boolean validateClaims = true;
+
+        /** Extra claim mappings, target claim to response field, for example oid: user_id or roles: groups. */
+        private Map<String, String> claimsMapping = new LinkedHashMap<>();
+
+        /** Connect timeout of the remote check. */
+        @NotNull
+        private Duration connectTimeout = Duration.ofSeconds(2);
+
+        /** Read timeout of the remote check. */
+        @NotNull
+        private Duration readTimeout = Duration.ofSeconds(3);
+
+        /** Active results are cached until the token expires or this passes, whichever is first. */
+        @NotNull
+        private Duration positiveCacheTtl = Duration.ofMinutes(5);
+
+        /** Inactive results are cached this long. */
+        @NotNull
+        private Duration negativeCacheTtl = Duration.ofSeconds(10);
+
+        /** Maximum number of cached results. */
+        @Min(1)
+        private int cacheMaxEntries = 10_000;
+
+        /** Consecutive failures that open the circuit breaker. */
+        @Min(1)
+        private int failureThreshold = 5;
+
+        /** How long the circuit stays open (tokens that are not cached are rejected) before one trial call. */
+        @NotNull
+        private Duration openDuration = Duration.ofSeconds(30);
+
+        public IntrospectionType getType() {
+            return type;
+        }
+
+        public void setType(IntrospectionType type) {
+            this.type = type;
+        }
+
+        public URI getUri() {
+            return uri;
+        }
+
+        public void setUri(URI uri) {
+            this.uri = uri;
+        }
+
+        public IntrospectionAuthMethod getAuthMethod() {
+            return authMethod;
+        }
+
+        public void setAuthMethod(IntrospectionAuthMethod authMethod) {
+            this.authMethod = authMethod;
+        }
+
+        public String getClientId() {
+            return clientId;
+        }
+
+        public void setClientId(String clientId) {
+            this.clientId = clientId;
+        }
+
+        public String getClientSecret() {
+            return clientSecret;
+        }
+
+        public void setClientSecret(String clientSecret) {
+            this.clientSecret = clientSecret;
+        }
+
+        public String getScope() {
+            return scope;
+        }
+
+        public void setScope(String scope) {
+            this.scope = scope;
+        }
+
+        public String getTokenTypeHint() {
+            return tokenTypeHint;
+        }
+
+        public void setTokenTypeHint(String tokenTypeHint) {
+            this.tokenTypeHint = tokenTypeHint;
+        }
+
+        public boolean isValidateClaims() {
+            return validateClaims;
+        }
+
+        public void setValidateClaims(boolean validateClaims) {
+            this.validateClaims = validateClaims;
+        }
+
+        public Map<String, String> getClaimsMapping() {
+            return claimsMapping;
+        }
+
+        public void setClaimsMapping(Map<String, String> claimsMapping) {
+            this.claimsMapping = claimsMapping;
+        }
+
+        public Duration getConnectTimeout() {
+            return connectTimeout;
+        }
+
+        public void setConnectTimeout(Duration connectTimeout) {
+            this.connectTimeout = connectTimeout;
+        }
+
+        public Duration getReadTimeout() {
+            return readTimeout;
+        }
+
+        public void setReadTimeout(Duration readTimeout) {
+            this.readTimeout = readTimeout;
+        }
+
+        public Duration getPositiveCacheTtl() {
+            return positiveCacheTtl;
+        }
+
+        public void setPositiveCacheTtl(Duration positiveCacheTtl) {
+            this.positiveCacheTtl = positiveCacheTtl;
+        }
+
+        public Duration getNegativeCacheTtl() {
+            return negativeCacheTtl;
+        }
+
+        public void setNegativeCacheTtl(Duration negativeCacheTtl) {
+            this.negativeCacheTtl = negativeCacheTtl;
+        }
+
+        public int getCacheMaxEntries() {
+            return cacheMaxEntries;
+        }
+
+        public void setCacheMaxEntries(int cacheMaxEntries) {
+            this.cacheMaxEntries = cacheMaxEntries;
+        }
+
+        public int getFailureThreshold() {
+            return failureThreshold;
+        }
+
+        public void setFailureThreshold(int failureThreshold) {
+            this.failureThreshold = failureThreshold;
+        }
+
+        public Duration getOpenDuration() {
+            return openDuration;
+        }
+
+        public void setOpenDuration(Duration openDuration) {
+            this.openDuration = openDuration;
         }
     }
 
