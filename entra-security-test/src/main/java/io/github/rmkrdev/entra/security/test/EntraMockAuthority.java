@@ -88,6 +88,10 @@ public final class EntraMockAuthority implements AutoCloseable {
     private volatile Duration onBehalfOfTokenLifetime = Duration.ofHours(1);
 
     private EntraMockAuthority() {
+        this(null);
+    }
+
+    private EntraMockAuthority(String publicHost) {
         String kid = "mock-" + UUID.randomUUID();
         this.signingKey = generate(kid);
         this.foreignKey = generate(kid);
@@ -105,7 +109,8 @@ public final class EntraMockAuthority implements AutoCloseable {
         server.setExecutor(executor);
         server.createContext("/", this::handle);
         server.start();
-        this.baseUrl = "http://" + server.getAddress().getHostString() + ":" + server.getAddress().getPort();
+        String host = publicHost != null ? publicHost : server.getAddress().getHostString();
+        this.baseUrl = "http://" + host + ":" + server.getAddress().getPort();
     }
 
     /**
@@ -113,6 +118,21 @@ public final class EntraMockAuthority implements AutoCloseable {
      */
     public static EntraMockAuthority start() {
         return new EntraMockAuthority();
+    }
+
+    /**
+     * Starts a new authority that still listens on loopback but presents itself as {@code publicHost}: its base
+     * URL, issuers, JWKS and token endpoints use that host name. Use it to test sovereign-cloud, B2C, CIAM or
+     * custom-domain configurations; the host must resolve to the loopback address in the test JVM, for example
+     * through a {@code -Djdk.net.hosts.file} entry.
+     *
+     * @param publicHost a host name such as {@code login.microsoftonline.us.test}
+     */
+    public static EntraMockAuthority start(String publicHost) {
+        if (publicHost == null || publicHost.isBlank() || publicHost.contains("/") || publicHost.contains(":")) {
+            throw new IllegalArgumentException("publicHost must be a bare host name, got '" + publicHost + "'");
+        }
+        return new EntraMockAuthority(publicHost);
     }
 
     /**
@@ -283,6 +303,7 @@ public final class EntraMockAuthority implements AutoCloseable {
                 doc.put("issuer", issuer(tenant));
                 doc.put("jwks_uri", jwkSetUri(tenant));
                 doc.put("token_endpoint", baseUrl + "/" + tenant + "/oauth2/v2.0/token");
+                doc.put("authorization_endpoint", baseUrl + "/" + tenant + "/oauth2/v2.0/authorize");
                 doc.put("id_token_signing_alg_values_supported", List.of("RS256"));
                 send(exchange, 200, write(doc));
             }

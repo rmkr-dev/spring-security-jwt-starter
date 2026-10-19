@@ -41,6 +41,9 @@ public class EntraSecurityProperties implements Validator {
     static final Pattern GUID = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
     private static final Set<String> MULTI_TENANT_AUTHORITIES = Set.of("common", "organizations", "consumers");
+    private static final String PATH_SEGMENT = "[A-Za-z0-9._~%:@!$&'()*+,;=-]+";
+    private static final Pattern TENANT_PATH = Pattern.compile(
+            "^(?!.*\\.\\.)" + PATH_SEGMENT + "(/" + PATH_SEGMENT + ")*$");
 
     /** Whether the starter is active. */
     private boolean enabled = true;
@@ -55,17 +58,26 @@ public class EntraSecurityProperties implements Validator {
             + "(entra.security.client-id or env ENTRA_SECURITY_CLIENTID)")
     private String clientId;
 
-    /** Entra authority host. Change it for sovereign clouds, for example https://login.microsoftonline.us. */
+    /**
+     * Entra authority host. Change it for sovereign clouds, for example https://login.microsoftonline.us.
+     * {@code entra.security.authority.host} takes precedence when set.
+     */
     @NotNull
     private URI authorityHost = URI.create("https://login.microsoftonline.com");
 
-    /** JWKS endpoint. Defaults to {authority-host}/{tenant-id}/discovery/v2.0/keys. */
+    /**
+     * JWKS endpoint. Defaults to {authority-host}/{tenant-id}/discovery/v2.0/keys.
+     * {@code entra.security.authority.jwks-uri} takes precedence when set.
+     */
     private URI jwkSetUri;
 
     /** Accepted token audiences. Defaults to api://{client-id} and {client-id}. */
     private List<String> audiences = new ArrayList<>();
 
-    /** Accepted token issuers. Defaults to the tenant's v1 (sts.windows.net) and v2 issuers. */
+    /**
+     * Accepted token issuers. Defaults to the tenant's v1 (sts.windows.net) and v2 issuers.
+     * {@code entra.security.authority.issuers} takes precedence when set.
+     */
     private List<String> issuers = new ArrayList<>();
 
     /** Tolerated clock skew when checking exp and nbf. */
@@ -104,6 +116,10 @@ public class EntraSecurityProperties implements Validator {
      */
     private String clientRoleMappingsCompact;
 
+    /** Overrides for the authority endpoints: sovereign clouds, B2C/CIAM, custom domains and other IdPs. */
+    @Valid
+    private final Authority authority = new Authority();
+
     @Valid
     private final User user = new User();
 
@@ -132,13 +148,19 @@ public class EntraSecurityProperties implements Validator {
 
     // ---------------------------------------------------------------- derived values
 
-    /** The effective issuers: the configured ones, or the tenant's v1 and v2 issuers. */
+    /**
+     * The effective issuers, without OIDC discovery: {@code authority.issuers}, then {@code issuers}, then the
+     * tenant's v2 issuer on the authority host and its v1 (sts.windows.net) issuer.
+     */
     public Set<String> resolveIssuers() {
+        if (!authority.getIssuers().isEmpty()) {
+            return new LinkedHashSet<>(authority.getIssuers());
+        }
         if (!issuers.isEmpty()) {
             return new LinkedHashSet<>(issuers);
         }
         Set<String> result = new LinkedHashSet<>();
-        result.add(trimSlash(authorityHost.toString()) + "/" + tenantId + "/v2.0");
+        result.add(trimSlash(resolveAuthorityHost().toString()) + "/" + tenantId + "/v2.0");
         result.add("https://sts.windows.net/" + tenantId + "/");
         return result;
     }
@@ -151,12 +173,67 @@ public class EntraSecurityProperties implements Validator {
         return new LinkedHashSet<>(List.of("api://" + clientId, clientId));
     }
 
-    /** The effective JWKS endpoint. */
+    /** The effective authority host: {@code authority.host}, then {@code authority-host}. */
+    public URI resolveAuthorityHost() {
+        return authority.getHost() != null ? authority.getHost() : authorityHost;
+    }
+
+    /**
+     * The path segment after the authority host that endpoints are built from: {@code authority.tenant-path}, or
+     * the tenant id.
+     */
+    public String resolveTenantPath() {
+        String path = authority.getTenantPath();
+        return path != null && !path.isBlank() ? path : tenantId;
+    }
+
+    /** The effective JWKS endpoint, without OIDC discovery. */
     public URI resolveJwkSetUri() {
+        if (authority.getJwksUri() != null) {
+            return authority.getJwksUri();
+        }
         if (jwkSetUri != null) {
             return jwkSetUri;
         }
-        return URI.create(trimSlash(authorityHost.toString()) + "/" + tenantId + "/discovery/v2.0/keys");
+        return authorityUri("/discovery/v2.0/keys");
+    }
+
+    /** The effective v2 token endpoint of this API's tenant, without OIDC discovery. */
+    public URI resolveTokenEndpoint() {
+        return authority.getTokenEndpoint() != null ? authority.getTokenEndpoint()
+                : authorityUri("/oauth2/v2.0/token");
+    }
+
+    /** The effective v2 authorize endpoint, without OIDC discovery. */
+    public URI resolveAuthorizeEndpoint() {
+        return authority.getAuthorizeEndpoint() != null ? authority.getAuthorizeEndpoint()
+                : authorityUri("/oauth2/v2.0/authorize");
+    }
+
+    /** The OIDC discovery document: {@code authority.metadata-uri}, or the tenant's v2 openid-configuration. */
+    public URI resolveMetadataUri() {
+        return authority.getMetadataUri() != null ? authority.getMetadataUri()
+                : authorityUri("/v2.0/.well-known/openid-configuration");
+    }
+
+    /** The effective Microsoft Graph base URL: {@code authority.graph-base-url}, then {@code graph.base-url}. */
+    public URI resolveGraphBaseUrl() {
+        return authority.getGraphBaseUrl() != null ? authority.getGraphBaseUrl() : graph.getBaseUrl();
+    }
+
+    /** The effective userinfo endpoint, without OIDC discovery: the configured one, or Graph's OIDC userinfo. */
+    public URI resolveUserinfoEndpoint() {
+        return authority.getUserinfoEndpoint() != null ? authority.getUserinfoEndpoint()
+                : URI.create(trimSlash(resolveGraphBaseUrl().toString()) + "/oidc/userinfo");
+    }
+
+    /** Whether OIDC discovery fills the endpoints that are not configured. */
+    public boolean isDiscoveryActive() {
+        return authority.getDiscovery().isEnabled() || authority.getMetadataUri() != null;
+    }
+
+    private URI authorityUri(String suffix) {
+        return URI.create(trimSlash(resolveAuthorityHost().toString()) + "/" + resolveTenantPath() + suffix);
     }
 
     /**
@@ -202,6 +279,7 @@ public class EntraSecurityProperties implements Validator {
         validateCompact(errors, "groupRoleMappingsCompact", properties::resolveGroupRoleMappings);
         validateCompact(errors, "appRoleMappingsCompact", properties::resolveAppRoleMappings);
         validateCompact(errors, "clientRoleMappingsCompact", properties::resolveClientRoleMappings);
+        properties.getAuthority().validate(errors);
     }
 
     private static void validateCompact(Errors errors, String field, Runnable resolve) {
@@ -220,10 +298,11 @@ public class EntraSecurityProperties implements Validator {
     }
 
     @AssertTrue(message = "entra.security.tenant-id must be the tenant GUID (not a domain name) unless "
-            + "entra.security.issuers is set explicitly, because Entra issuers always contain the GUID")
+            + "entra.security.authority.issuers (or entra.security.issuers) is set explicitly or OIDC discovery is "
+            + "enabled, because Entra issuers always contain the GUID")
     public boolean isTenantIdUsableForIssuers() {
-        return tenantId == null || !issuers.isEmpty() || GUID.matcher(tenantId).matches()
-                || !isSingleTenant();
+        return tenantId == null || !issuers.isEmpty() || !authority.getIssuers().isEmpty() || isDiscoveryActive()
+                || GUID.matcher(tenantId).matches() || !isSingleTenant();
     }
 
     @AssertTrue(message = "entra.security.graph.overage-enabled=true requires entra.security.credential.type "
@@ -374,6 +453,10 @@ public class EntraSecurityProperties implements Validator {
         this.clientRoleMappings = clientRoleMappings;
     }
 
+    public Authority getAuthority() {
+        return authority;
+    }
+
     public User getUser() {
         return user;
     }
@@ -411,6 +494,243 @@ public class EntraSecurityProperties implements Validator {
     }
 
     // ---------------------------------------------------------------- nested types
+
+    /**
+     * Overrides for the authority endpoints, all optional. Unset values keep the Entra defaults, which are built
+     * from {@code {host}/{tenant-path}}; with discovery enabled they are taken from the OIDC metadata document
+     * instead. Explicit values always win over discovered ones.
+     */
+    public static class Authority {
+
+        private static final Set<String> LOOPBACK = Set.of("localhost", "127.0.0.1", "[::1]", "::1");
+
+        /**
+         * Authority host, for example https://login.microsoftonline.us (US Government),
+         * https://login.chinacloudapi.cn, https://contoso.b2clogin.com, https://contoso.ciamlogin.com or a custom
+         * domain. Overrides entra.security.authority-host.
+         */
+        private URI host;
+
+        /**
+         * Path after the host that endpoints are built from. Defaults to the tenant id. For B2C use
+         * {tenant}.onmicrosoft.com/{policy}, for example contoso.onmicrosoft.com/B2C_1_signin.
+         */
+        private String tenantPath;
+
+        /** Accepted issuers. Overrides entra.security.issuers and the discovered issuer. */
+        private List<String> issuers = new ArrayList<>();
+
+        /** JWKS endpoint. Overrides entra.security.jwk-set-uri and the discovered jwks_uri. */
+        private URI jwksUri;
+
+        /** Token endpoint used for client-credentials, on-behalf-of and Graph tokens of this API's tenant. */
+        private URI tokenEndpoint;
+
+        /** Authorize endpoint. Not called by the starter; exposed through EntraEndpoints for applications. */
+        private URI authorizeEndpoint;
+
+        /**
+         * OIDC discovery (metadata) document. Defaults to {host}/{tenant-path}/v2.0/.well-known/openid-configuration.
+         * Setting it turns discovery on.
+         */
+        private URI metadataUri;
+
+        /** Userinfo endpoint. Defaults to the discovered userinfo_endpoint, or {graph-base-url}/oidc/userinfo. */
+        private URI userinfoEndpoint;
+
+        /** Microsoft Graph base URL. Overrides entra.security.graph.base-url, for example https://graph.microsoft.us. */
+        private URI graphBaseUrl;
+
+        /**
+         * Allow plain http endpoints on hosts other than localhost, for example an in-cluster IdP at
+         * http://idp.auth.svc.cluster.local. Keep it off in production unless the hop is otherwise protected.
+         */
+        private boolean allowHttp = false;
+
+        private final Discovery discovery = new Discovery();
+
+        void validate(Errors errors) {
+            checkUri(errors, "host", host);
+            checkUri(errors, "jwksUri", jwksUri);
+            checkUri(errors, "tokenEndpoint", tokenEndpoint);
+            checkUri(errors, "authorizeEndpoint", authorizeEndpoint);
+            checkUri(errors, "metadataUri", metadataUri);
+            checkUri(errors, "userinfoEndpoint", userinfoEndpoint);
+            checkUri(errors, "graphBaseUrl", graphBaseUrl);
+            if (tenantPath != null && !tenantPath.isBlank() && !TENANT_PATH.matcher(tenantPath).matches()) {
+                errors.rejectValue("authority.tenantPath", "invalidTenantPath", PREFIX + ".authority.tenant-path '"
+                        + tenantPath + "' must be one or more path segments without '..', '?' or '#', for example "
+                        + "contoso.onmicrosoft.com/B2C_1_signin");
+            }
+            for (int i = 0; i < issuers.size(); i++) {
+                String issuer = issuers.get(i);
+                if (issuer == null || issuer.isBlank()) {
+                    errors.rejectValue("authority.issuers", "blankIssuer",
+                            PREFIX + ".authority.issuers[" + i + "] must not be blank");
+                }
+            }
+        }
+
+        private void checkUri(Errors errors, String field, URI uri) {
+            String problem = uriProblem(uri, allowHttp);
+            if (problem != null) {
+                errors.rejectValue("authority." + field, "invalidAuthorityUri",
+                        PREFIX + ".authority." + kebab(field) + " " + problem);
+            }
+        }
+
+        /**
+         * Why an authority URI is not acceptable, or {@code null} when it is (or is {@code null}).
+         */
+        static String uriProblem(URI uri, boolean allowHttp) {
+            if (uri == null) {
+                return null;
+            }
+            if (!uri.isAbsolute() || uri.getHost() == null) {
+                return "'" + uri + "' must be an absolute http(s) URL with a host";
+            }
+            String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            if ("https".equals(scheme)) {
+                return null;
+            }
+            if (!"http".equals(scheme)) {
+                return "'" + uri + "' must use https";
+            }
+            if (allowHttp || LOOPBACK.contains(uri.getHost().toLowerCase(Locale.ROOT))) {
+                return null;
+            }
+            return "'" + uri + "' uses http: use https, or set " + PREFIX + ".authority.allow-http=true for an "
+                    + "endpoint that is protected otherwise (for example an in-cluster IdP)";
+        }
+
+        private static String kebab(String field) {
+            return field.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase(Locale.ROOT);
+        }
+
+        public URI getHost() {
+            return host;
+        }
+
+        public void setHost(URI host) {
+            this.host = host;
+        }
+
+        public String getTenantPath() {
+            return tenantPath;
+        }
+
+        public void setTenantPath(String tenantPath) {
+            this.tenantPath = tenantPath == null ? null : stripSlashes(tenantPath.trim());
+        }
+
+        public List<String> getIssuers() {
+            return issuers;
+        }
+
+        public void setIssuers(List<String> issuers) {
+            this.issuers = issuers;
+        }
+
+        public URI getJwksUri() {
+            return jwksUri;
+        }
+
+        public void setJwksUri(URI jwksUri) {
+            this.jwksUri = jwksUri;
+        }
+
+        public URI getTokenEndpoint() {
+            return tokenEndpoint;
+        }
+
+        public void setTokenEndpoint(URI tokenEndpoint) {
+            this.tokenEndpoint = tokenEndpoint;
+        }
+
+        public URI getAuthorizeEndpoint() {
+            return authorizeEndpoint;
+        }
+
+        public void setAuthorizeEndpoint(URI authorizeEndpoint) {
+            this.authorizeEndpoint = authorizeEndpoint;
+        }
+
+        public URI getMetadataUri() {
+            return metadataUri;
+        }
+
+        public void setMetadataUri(URI metadataUri) {
+            this.metadataUri = metadataUri;
+        }
+
+        public URI getUserinfoEndpoint() {
+            return userinfoEndpoint;
+        }
+
+        public void setUserinfoEndpoint(URI userinfoEndpoint) {
+            this.userinfoEndpoint = userinfoEndpoint;
+        }
+
+        public URI getGraphBaseUrl() {
+            return graphBaseUrl;
+        }
+
+        public void setGraphBaseUrl(URI graphBaseUrl) {
+            this.graphBaseUrl = graphBaseUrl;
+        }
+
+        public boolean isAllowHttp() {
+            return allowHttp;
+        }
+
+        public void setAllowHttp(boolean allowHttp) {
+            this.allowHttp = allowHttp;
+        }
+
+        public Discovery getDiscovery() {
+            return discovery;
+        }
+
+        private static String stripSlashes(String value) {
+            String result = value;
+            while (result.startsWith("/")) {
+                result = result.substring(1);
+            }
+            while (result.endsWith("/")) {
+                result = result.substring(0, result.length() - 1);
+            }
+            return result;
+        }
+    }
+
+    /** OIDC discovery of the authority endpoints. */
+    public static class Discovery {
+
+        /** Fetch the OIDC metadata document at startup and use it for every endpoint that is not configured. */
+        private boolean enabled = false;
+
+        /**
+         * Fail startup when the metadata document cannot be fetched or is invalid. When false, a warning is
+         * logged and the defaults are used.
+         */
+        private boolean required = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isRequired() {
+            return required;
+        }
+
+        public void setRequired(boolean required) {
+            this.required = required;
+        }
+    }
 
     /** Settings for user (delegated) tokens. */
     public static class User {

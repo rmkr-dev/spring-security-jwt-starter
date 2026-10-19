@@ -1,5 +1,8 @@
 package io.github.rmkrdev.entra.security.autoconfigure.health;
 
+import java.net.URI;
+
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -12,6 +15,7 @@ import org.springframework.context.annotation.Bean;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 
+import io.github.rmkrdev.entra.security.autoconfigure.EntraEndpoints;
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityAutoConfiguration;
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties;
 import io.github.rmkrdev.entra.security.autoconfigure.EntraTokenProviders;
@@ -44,9 +48,10 @@ public class EntraHealthAutoConfiguration {
             havingValue = "true")
     @ConditionalOnBean(EntraTokenProviders.class)
     public HealthIndicator entraGraphHealthIndicator(EntraSecurityProperties properties,
-            EntraTokenProviders tokenProviders) {
+            EntraTokenProviders tokenProviders, ObjectProvider<EntraEndpoints> endpoints) {
         EntraSecurityProperties.Graph graph = properties.getGraph();
+        URI graphBaseUrl = endpoints.getIfAvailable(() -> EntraEndpoints.of(properties)).graphBaseUrl();
         return new EntraGraphHealthIndicator(tokenProviders.applicationTokenProvider(),
-                EntraTokenProviders.defaultRestClient(properties), graph.getBaseUrl(), graph.getScope());
+                EntraTokenProviders.defaultRestClient(properties), graphBaseUrl, graph.getScope());
     }
 }

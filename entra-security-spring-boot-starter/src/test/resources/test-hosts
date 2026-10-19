@@ -1,0 +1,8 @@
+# Test-only name resolution, read through -Djdk.net.hosts.file (see pom.xml). With this file in place the
+# test JVM resolves nothing else, so no test can reach a real network host by accident.
+127.0.0.1 localhost
+# Custom authority hosts: a sovereign-cloud style login host and its Graph, and a B2C/CIAM-style custom IdP.
+127.0.0.1 login.sovereign.test graph.sovereign.test idp.contoso.test
+# Outbound targets: an external HTTPS API and in-cluster Kubernetes service names.
+127.0.0.1 example.text.com partner.example.test
+127.0.0.1 orders.shop.svc.cluster.local inventory.shop.svc.cluster.local public.shop.svc.cluster.local

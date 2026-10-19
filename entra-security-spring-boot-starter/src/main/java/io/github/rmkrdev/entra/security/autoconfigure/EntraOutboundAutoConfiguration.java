@@ -36,11 +36,12 @@ public class EntraOutboundAutoConfiguration {
     public EntraOutboundClients entraOutboundClients(EntraSecurityProperties properties, Environment environment,
             ObjectProvider<EntraTokenProviders> tokenProviders,
             ObjectProvider<EntraSecurityObservations> observations,
-            ObjectProvider<KeyVaultCredentialFactory> keyVaultCredentials) {
+            ObjectProvider<KeyVaultCredentialFactory> keyVaultCredentials,
+            ObjectProvider<EntraEndpoints> endpoints) {
         EntraTokenProviders providers = tokenProviders.getIfAvailable(() -> new EntraTokenProviders(properties,
                 environment, EntraTokenProviders.defaultRestClient(properties), Clock.systemUTC(),
                 observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP),
-                keyVaultCredentials.getIfAvailable()));
+                keyVaultCredentials.getIfAvailable(), endpoints.getIfAvailable()));
         Map<String, EntraOutboundClients.Client> clients = new LinkedHashMap<>();
         properties.getOutbound().getClients().forEach((name, config) -> clients.put(name,
                 config.getFlow() == OutboundFlow.ON_BEHALF_OF

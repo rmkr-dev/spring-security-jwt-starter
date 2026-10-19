@@ -68,8 +68,9 @@ public class EntraReactiveSecurityAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public ReactiveJwtDecoder entraReactiveJwtDecoder(JWKSource<SecurityContext> entraJwkSource,
-            EntraSecurityProperties properties, ObjectProvider<EntraSecurityObservations> observations) {
-        JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, properties.resolveIssuers(),
+            EntraSecurityProperties properties, EntraEndpoints endpoints,
+            ObjectProvider<EntraSecurityObservations> observations) {
+        JwtDecoder decoder = EntraJwtDecoders.create(entraJwkSource, endpoints.issuers(),
                 properties.resolveAudiences(), properties.resolveRequiredTenantId(), properties.getClockSkew());
         return new EntraReactiveJwtDecoder(ObservingJwtDecoder.wrap(decoder,
                 observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP)));
@@ -80,10 +81,11 @@ public class EntraReactiveSecurityAutoConfiguration {
     @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "graph.overage-enabled",
             havingValue = "true")
     public ReactiveGroupMembershipResolver entraReactiveGroupMembershipResolver(EntraSecurityProperties properties,
-            EntraTokenProviders tokenProviders, ObjectProvider<EntraSecurityObservations> observations) {
+            EntraEndpoints endpoints, EntraTokenProviders tokenProviders,
+            ObjectProvider<EntraSecurityObservations> observations) {
         EntraSecurityProperties.Graph graph = properties.getGraph();
         ReactiveGraphGroupMembershipResolver graphResolver = new ReactiveGraphGroupMembershipResolver(
-                defaultWebClient(properties), tokenProviders.applicationTokenProvider(), graph.getBaseUrl(),
+                defaultWebClient(properties), tokenProviders.applicationTokenProvider(), endpoints.graphBaseUrl(),
                 graph.getScope(), graph.getMaxPages(), properties.getHttp().getReadTimeout(),
                 observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
         return new CachingReactiveGroupMembershipResolver(graphResolver, graph.getCacheTtl(),
