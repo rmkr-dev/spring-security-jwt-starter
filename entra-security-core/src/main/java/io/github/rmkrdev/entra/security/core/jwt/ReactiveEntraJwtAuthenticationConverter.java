@@ -25,6 +25,7 @@ public final class ReactiveEntraJwtAuthenticationConverter
     private final EntraAuthenticationAssembler assembler;
     private final ReactiveGroupMembershipResolver groupResolver;
     private final EntraSecurityObservations observations;
+    private final AuthenticationCache cache;
 
     /**
      * @param classifier         user/service classification
@@ -38,9 +39,24 @@ public final class ReactiveEntraJwtAuthenticationConverter
     public ReactiveEntraJwtAuthenticationConverter(EntraTokenClassifier classifier, EntraAuthorityMapper mapper,
             ReactiveGroupMembershipResolver groupResolver, boolean requireKnownClient, SafeClaimLogger claimLogger,
             EntraSecurityObservations observations) {
-        this.assembler = new EntraAuthenticationAssembler(classifier, mapper, requireKnownClient, claimLogger);
+        this(new EntraAuthenticationAssembler(classifier, mapper, requireKnownClient, claimLogger), groupResolver,
+                observations, null);
+    }
+
+    private ReactiveEntraJwtAuthenticationConverter(EntraAuthenticationAssembler assembler,
+            ReactiveGroupMembershipResolver groupResolver, EntraSecurityObservations observations,
+            AuthenticationCache cache) {
+        this.assembler = assembler;
         this.groupResolver = groupResolver;
         this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
+        this.cache = cache;
+    }
+
+    /**
+     * The same converter, remembering the mapped principal and authorities per token in {@code cache}.
+     */
+    public ReactiveEntraJwtAuthenticationConverter withCache(AuthenticationCache cache) {
+        return new ReactiveEntraJwtAuthenticationConverter(assembler, groupResolver, observations, cache);
     }
 
     @Override
@@ -56,17 +72,37 @@ public final class ReactiveEntraJwtAuthenticationConverter
     }
 
     private Mono<EntraAuthenticationToken> doConvert(Jwt jwt) {
+        if (cache != null) {
+            EntraAuthenticationToken cached = cache.get(jwt);
+            if (cached != null) {
+                return Mono.just(cached);
+            }
+        }
         PrincipalType type = assembler.classify(jwt);
         if (!assembler.shouldResolveOverage(jwt, type, groupResolver != null)) {
-            return Mono.just(assembler.assemble(jwt, type, List.of()));
+            return Mono.just(remember(jwt, assembler.assemble(jwt, type, List.of())));
         }
         return Mono.defer(() -> groupResolver.resolve(jwt.getClaimAsString(EntraClaimNames.TENANT_ID),
                         jwt.getClaimAsString(EntraClaimNames.OBJECT_ID)))
                 .defaultIfEmpty(List.of())
+                .map(groups -> new Lookup(groups, true))
                 .onErrorResume(RuntimeException.class, ex -> {
                     assembler.groupLookupFailed(ex);
-                    return Mono.just(List.<GroupMembership>of());
+                    return Mono.just(new Lookup(List.of(), false));
                 })
-                .map(groups -> assembler.assemble(jwt, type, groups));
+                .map(lookup -> {
+                    EntraAuthenticationToken authentication = assembler.assemble(jwt, type, lookup.groups());
+                    return lookup.complete() ? remember(jwt, authentication) : authentication;
+                });
+    }
+
+    private EntraAuthenticationToken remember(Jwt jwt, EntraAuthenticationToken authentication) {
+        if (cache != null) {
+            cache.put(jwt, authentication);
+        }
+        return authentication;
+    }
+
+    private record Lookup(List<GroupMembership> groups, boolean complete) {
     }
 }

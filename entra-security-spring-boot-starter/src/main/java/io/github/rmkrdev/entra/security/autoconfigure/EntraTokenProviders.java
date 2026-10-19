@@ -2,10 +2,16 @@ package io.github.rmkrdev.entra.security.autoconfigure;
 
 import java.net.URI;
 import java.nio.file.Path;
+import java.net.http.HttpClient;
 import java.time.Clock;
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 import org.springframework.core.env.Environment;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
@@ -30,6 +36,13 @@ import io.github.rmkrdev.entra.security.core.token.WorkloadIdentityCredential;
  * when not configured explicitly.
  */
 public class EntraTokenProviders {
+
+    private static final Map<Duration, HttpClient> CLIENTS = new ConcurrentHashMap<>();
+    private static final Executor REFRESHER = Executors.newCachedThreadPool(runnable -> {
+        Thread thread = new Thread(runnable, "entra-token-refresh");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private final EntraSecurityProperties properties;
     private final Environment environment;
@@ -97,10 +110,23 @@ public class EntraTokenProviders {
 
     /** HTTP client that uses {@code entra.security.http} connect and read timeouts. */
     public static RestClient defaultRestClient(EntraSecurityProperties properties) {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(properties.getHttp().getConnectTimeout());
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
+                pooledHttpClient(properties.getHttp().getConnectTimeout()));
         factory.setReadTimeout(properties.getHttp().getReadTimeout());
         return RestClient.builder().requestFactory(factory).build();
+    }
+
+    /**
+     * The shared JDK HTTP client for a connect timeout. One client per timeout keeps a single keep-alive
+     * connection pool for the token endpoint, Graph, JWKS discovery and introspection, instead of a new TCP and
+     * TLS handshake per call.
+     */
+    public static HttpClient pooledHttpClient(Duration connectTimeout) {
+        return CLIENTS.computeIfAbsent(connectTimeout, timeout -> HttpClient.newBuilder()
+                .connectTimeout(timeout)
+                .version(HttpClient.Version.HTTP_1_1)
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build());
     }
 
     /** The provider for this API's own credential ({@code entra.security.credential}). */
@@ -117,8 +143,11 @@ public class EntraTokenProviders {
         boolean workload = effective.getType() == CredentialType.WORKLOAD_IDENTITY;
         String clientId = firstText(effective.getClientId(), workload ? env("AZURE_CLIENT_ID") : null,
                 properties.getClientId());
-        return new ClientCredentialsTokenProvider(tokenEndpoint(effective), clientId, credential(effective),
-                restClient, properties.getCache().getTokenRefreshSkew(), clock, observations);
+        ClientCredentialsTokenProvider provider = new ClientCredentialsTokenProvider(tokenEndpoint(effective),
+                clientId, credential(effective), restClient, properties.getCache().getTokenRefreshSkew(), clock,
+                observations);
+        return properties.getCache().isTokenBackgroundRefresh() ? provider.withBackgroundRefresh(REFRESHER)
+                : provider;
     }
 
     /**

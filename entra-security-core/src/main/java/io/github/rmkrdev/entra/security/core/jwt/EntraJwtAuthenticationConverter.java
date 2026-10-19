@@ -11,7 +11,6 @@ import io.github.rmkrdev.entra.security.core.graph.GroupMembership;
 import io.github.rmkrdev.entra.security.core.graph.GroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.principal.EntraAuthenticationToken;
-import io.github.rmkrdev.entra.security.core.principal.EntraPrincipal;
 import io.github.rmkrdev.entra.security.core.principal.PrincipalType;
 
 /**
@@ -23,6 +22,7 @@ public final class EntraJwtAuthenticationConverter implements Converter<Jwt, Abs
     private final EntraAuthenticationAssembler assembler;
     private final GroupMembershipResolver groupResolver;
     private final EntraSecurityObservations observations;
+    private final AuthenticationCache cache;
 
     /**
      * @param classifier         user/service classification
@@ -43,9 +43,23 @@ public final class EntraJwtAuthenticationConverter implements Converter<Jwt, Abs
     public EntraJwtAuthenticationConverter(EntraTokenClassifier classifier, EntraAuthorityMapper mapper,
             GroupMembershipResolver groupResolver, boolean requireKnownClient, SafeClaimLogger claimLogger,
             EntraSecurityObservations observations) {
-        this.assembler = new EntraAuthenticationAssembler(classifier, mapper, requireKnownClient, claimLogger);
+        this(new EntraAuthenticationAssembler(classifier, mapper, requireKnownClient, claimLogger), groupResolver,
+                observations, null);
+    }
+
+    private EntraJwtAuthenticationConverter(EntraAuthenticationAssembler assembler,
+            GroupMembershipResolver groupResolver, EntraSecurityObservations observations, AuthenticationCache cache) {
+        this.assembler = assembler;
         this.groupResolver = groupResolver;
         this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
+        this.cache = cache;
+    }
+
+    /**
+     * The same converter, remembering the mapped principal and authorities per token in {@code cache}.
+     */
+    public EntraJwtAuthenticationConverter withCache(AuthenticationCache cache) {
+        return new EntraJwtAuthenticationConverter(assembler, groupResolver, observations, cache);
     }
 
     @Override
@@ -65,8 +79,15 @@ public final class EntraJwtAuthenticationConverter implements Converter<Jwt, Abs
     }
 
     private AbstractAuthenticationToken doConvert(Jwt jwt) {
+        if (cache != null) {
+            EntraAuthenticationToken cached = cache.get(jwt);
+            if (cached != null) {
+                return cached;
+            }
+        }
         PrincipalType type = assembler.classify(jwt);
         List<GroupMembership> resolved = List.of();
+        boolean complete = true;
         if (assembler.shouldResolveOverage(jwt, type, groupResolver != null)) {
             try {
                 resolved = groupResolver.resolve(jwt.getClaimAsString(EntraClaimNames.TENANT_ID),
@@ -74,8 +95,13 @@ public final class EntraJwtAuthenticationConverter implements Converter<Jwt, Abs
             }
             catch (RuntimeException ex) {
                 assembler.groupLookupFailed(ex);
+                complete = false;
             }
         }
-        return assembler.assemble(jwt, type, resolved);
+        EntraAuthenticationToken authentication = assembler.assemble(jwt, type, resolved);
+        if (cache != null && complete) {
+            cache.put(jwt, authentication);
+        }
+        return authentication;
     }
 }

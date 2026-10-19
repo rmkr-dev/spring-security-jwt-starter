@@ -82,6 +82,85 @@ class ClientCredentialsTokenProviderTest {
     }
 
     @Test
+    void backgroundRefreshReturnsTheCachedTokenAndRenewsOffThread() {
+        stubToken("first", 120);
+        java.util.concurrent.atomic.AtomicReference<java.time.Instant> now = new java.util.concurrent.atomic
+                .AtomicReference<>(java.time.Instant.now());
+        Clock clock = new Clock() {
+            @Override
+            public java.time.ZoneId getZone() {
+                return java.time.ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public java.time.Instant instant() {
+                return now.get();
+            }
+        };
+        List<Runnable> queued = new ArrayList<>();
+        ClientCredentialsTokenProvider provider = new ClientCredentialsTokenProvider(tokenEndpoint, "app-id",
+                new ClientSecretCredential("s"), RestClient.create(), Duration.ofMinutes(5), clock)
+                .withBackgroundRefresh(queued::add);
+        assertThat(provider.getToken("a").value()).isEqualTo("first");
+        now.set(now.get().plusSeconds(70));
+        stubToken("second", 3600);
+        assertThat(provider.getToken("a").value()).isEqualTo("first");
+        assertThat(provider.getToken("a").value()).isEqualTo("first");
+        assertThat(queued).hasSize(1);
+        queued.get(0).run();
+        assertThat(provider.getToken("a").value()).isEqualTo("second");
+
+        wireMock.stubFor(post(TOKEN_PATH).willReturn(aResponse().withStatus(500)));
+        ClientCredentialsTokenProvider failing = new ClientCredentialsTokenProvider(tokenEndpoint, "app-id",
+                new ClientSecretCredential("s"), RestClient.create(), Duration.ofMinutes(5), Clock.systemUTC())
+                .withBackgroundRefresh(runnable -> {
+                    throw new IllegalStateException("rejected");
+                });
+        assertThatThrownBy(() -> failing.getToken("b")).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void failedBackgroundRefreshKeepsTheCachedToken() {
+        stubToken("first", 120);
+        java.util.concurrent.atomic.AtomicReference<java.time.Instant> now = new java.util.concurrent.atomic
+                .AtomicReference<>(java.time.Instant.now());
+        Clock clock = new Clock() {
+            @Override
+            public java.time.ZoneId getZone() {
+                return java.time.ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public java.time.Instant instant() {
+                return now.get();
+            }
+        };
+        List<Runnable> queued = new ArrayList<>();
+        ClientCredentialsTokenProvider provider = new ClientCredentialsTokenProvider(tokenEndpoint, "app-id",
+                new ClientSecretCredential("s"), RestClient.create(), Duration.ofMinutes(5), clock)
+                .withBackgroundRefresh(queued::add);
+        provider.getToken("a");
+        now.set(now.get().plusSeconds(70));
+        wireMock.stubFor(post(TOKEN_PATH).willReturn(aResponse().withStatus(500)));
+        provider.getToken("a");
+        queued.get(0).run();
+        assertThat(provider.getToken("a").value()).isEqualTo("first");
+        assertThat(queued).hasSize(2);
+        now.set(now.get().plusSeconds(40));
+        assertThatThrownBy(() -> provider.getToken("a")).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
     void entraErrorsAreReportedWithoutSecrets() {
         wireMock.stubFor(post(TOKEN_PATH).willReturn(aResponse().withStatus(401)
                 .withHeader("Content-Type", "application/json")

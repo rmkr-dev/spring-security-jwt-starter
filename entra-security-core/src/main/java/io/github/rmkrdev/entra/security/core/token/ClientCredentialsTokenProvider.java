@@ -6,6 +6,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -16,6 +20,10 @@ import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 /**
  * Acquires app-only tokens with the OAuth 2.0 client credentials grant against the Entra v2 token
  * endpoint, and caches them per scope until shortly before they expire.
+ * <p>
+ * With a background executor ({@link #withBackgroundRefresh(Executor)}), a token inside its refresh window is
+ * still returned at once and renewed on the executor, so callers only wait for the token endpoint when no
+ * valid token is cached at all.
  */
 public final class ClientCredentialsTokenProvider implements EntraTokenProvider {
 
@@ -28,6 +36,10 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
     private final EntraSecurityObservations observations;
     private final Map<String, CachedToken> cache = new ConcurrentHashMap<>();
     private final Map<String, Object> locks = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> refreshing = new ConcurrentHashMap<>();
+    private static final Logger log = LoggerFactory.getLogger(ClientCredentialsTokenProvider.class);
+    private static final Duration MIN_REMAINING = Duration.ofSeconds(30);
+    private volatile Executor refresher;
 
     /**
      * @param tokenEndpoint the token endpoint, see {@link #tokenEndpoint(URI, String)}
@@ -68,10 +80,26 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
         return URI.create(host + "/" + tenantId + "/oauth2/v2.0/token");
     }
 
+    /**
+     * Renews tokens in their refresh window on {@code executor} instead of on the calling thread.
+     *
+     * @return this provider
+     */
+    public ClientCredentialsTokenProvider withBackgroundRefresh(Executor executor) {
+        this.refresher = executor;
+        return this;
+    }
+
     @Override
     public AccessToken getToken(String scope) {
         CachedToken cached = cache.get(scope);
-        if (cached != null && cached.isFresh(clock.instant())) {
+        Instant now = clock.instant();
+        if (cached != null && cached.isFresh(now)) {
+            return cached.token();
+        }
+        Executor executor = refresher;
+        if (executor != null && cached != null && now.plus(MIN_REMAINING).isBefore(cached.token().expiresAt())) {
+            refreshInBackground(scope, executor);
             return cached.token();
         }
         synchronized (locks.computeIfAbsent(scope, key -> new Object())) {
@@ -82,6 +110,29 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
             CachedToken fresh = fetch(scope);
             cache.put(scope, fresh);
             return fresh.token();
+        }
+    }
+
+    private void refreshInBackground(String scope, Executor executor) {
+        if (refreshing.putIfAbsent(scope, Boolean.TRUE) != null) {
+            return;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    cache.put(scope, fetch(scope));
+                }
+                catch (RuntimeException ex) {
+                    log.warn("Early renewal of the token for scope {} failed; using the cached token: {}", scope,
+                            ex.getMessage());
+                }
+                finally {
+                    refreshing.remove(scope);
+                }
+            });
+        }
+        catch (RuntimeException ex) {
+            refreshing.remove(scope);
         }
     }
 

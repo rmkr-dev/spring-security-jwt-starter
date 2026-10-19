@@ -65,6 +65,24 @@ public final class EntraJwtDecoders {
     }
 
     /**
+     * The JWKS source with background refresh ({@link EntraJwkSource}), reporting each fetch to
+     * {@code observations}.
+     *
+     * @param connectTimeout JWKS connect timeout
+     * @param readTimeout    JWKS read timeout, also how long a request waits for a fetch in progress
+     * @param refreshAhead   background refresh window before {@code cacheTtl} ends; zero disables it
+     */
+    public static EntraJwkSource refreshingJwkSource(URI jwkSetUri, Duration cacheTtl, Duration connectTimeout,
+            Duration readTimeout, Duration refreshAhead, EntraSecurityObservations observations) {
+        int connect = (int) Math.min(Integer.MAX_VALUE, connectTimeout.toMillis());
+        int read = (int) Math.min(Integer.MAX_VALUE, readTimeout.toMillis());
+        ResourceRetriever retriever = observations == null || observations == EntraSecurityObservations.NO_OP
+                ? new DefaultResourceRetriever(connect, read, JWKS_SIZE_LIMIT_BYTES)
+                : new ObservingResourceRetriever(connect, read, JWKS_SIZE_LIMIT_BYTES, observations);
+        return new EntraJwkSource(jwkSetUri, retriever, cacheTtl, readTimeout, refreshAhead);
+    }
+
+    /**
      * Creates the decoder.
      *
      * @param jwkSource  the signing keys
