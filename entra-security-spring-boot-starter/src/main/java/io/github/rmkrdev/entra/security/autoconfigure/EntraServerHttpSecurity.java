@@ -1,5 +1,11 @@
 package io.github.rmkrdev.entra.security.autoconfigure;
 
+import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
+import org.springframework.security.web.server.ServerAuthenticationEntryPoint;
+import org.springframework.security.web.server.authorization.ServerAccessDeniedHandler;
+
+import io.github.rmkrdev.entra.security.core.web.server.ReactiveAuthTiming;
+
 import java.util.List;
 
 import org.springframework.core.convert.converter.Converter;
@@ -38,11 +44,24 @@ public class EntraServerHttpSecurity {
     private final ServerProblemDetailsAuthenticationEntryPoint entryPoint;
     private final ServerProblemDetailsAccessDeniedHandler accessDeniedHandler;
     private final List<String> publicPaths;
+    private final ReactiveAuthTiming timing;
 
     public EntraServerHttpSecurity(ReactiveJwtDecoder jwtDecoder,
             Converter<Jwt, ? extends Mono<? extends AbstractAuthenticationToken>> converter,
             ServerProblemDetailsAuthenticationEntryPoint entryPoint,
             ServerProblemDetailsAccessDeniedHandler accessDeniedHandler, List<String> publicPaths) {
+        this(jwtDecoder, converter, entryPoint, accessDeniedHandler, publicPaths, null);
+    }
+
+    /**
+     * @param timing times each exchange's authentication work and records the decision; {@code null} disables it
+     */
+    public EntraServerHttpSecurity(ReactiveJwtDecoder jwtDecoder,
+            Converter<Jwt, ? extends Mono<? extends AbstractAuthenticationToken>> converter,
+            ServerProblemDetailsAuthenticationEntryPoint entryPoint,
+            ServerProblemDetailsAccessDeniedHandler accessDeniedHandler, List<String> publicPaths,
+            ReactiveAuthTiming timing) {
+        this.timing = timing;
         this.jwtDecoder = jwtDecoder;
         this.converter = converter;
         this.entryPoint = entryPoint;
@@ -51,6 +70,13 @@ public class EntraServerHttpSecurity {
     }
 
     public ServerHttpSecurity configure(ServerHttpSecurity http) {
+        ServerAuthenticationEntryPoint entryPoint = timing == null ? this.entryPoint : timing.wrap(this.entryPoint);
+        ServerAccessDeniedHandler accessDeniedHandler = timing == null ? this.accessDeniedHandler
+                : timing.wrap(this.accessDeniedHandler);
+        if (timing != null) {
+            http.addFilterBefore(timing.startFilter(), SecurityWebFiltersOrder.AUTHENTICATION)
+                    .addFilterAfter(timing.endFilter(), SecurityWebFiltersOrder.AUTHORIZATION);
+        }
         http.csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .cors(Customizer.withDefaults())
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())

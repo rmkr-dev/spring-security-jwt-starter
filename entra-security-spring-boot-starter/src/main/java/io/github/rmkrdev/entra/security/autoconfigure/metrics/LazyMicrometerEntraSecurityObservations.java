@@ -41,6 +41,11 @@ final class LazyMicrometerEntraSecurityObservations implements EntraSecurityObse
     }
 
     @Override
+    public void authDecision(io.github.rmkrdev.entra.security.core.decision.AuthDecision decision) {
+        delegate().authDecision(decision);
+    }
+
+    @Override
     public void jwksRefresh(boolean success, Duration duration) {
         delegate().jwksRefresh(success, duration);
     }

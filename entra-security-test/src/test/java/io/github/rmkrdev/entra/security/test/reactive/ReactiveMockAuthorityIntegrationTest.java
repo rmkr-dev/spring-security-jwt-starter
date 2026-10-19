@@ -72,6 +72,22 @@ class ReactiveMockAuthorityIntegrationTest {
     }
 
     @Test
+    void authTimingIsReturnedAsServerTiming() {
+        client.get().uri("/orders").headers(bearer(tokens.user().groups(READERS))).exchange()
+                .expectStatus().isOk()
+                .expectHeader().value("Server-Timing", startsWith("auth;dur="));
+        client.get().uri("/orders").exchange()
+                .expectStatus().isUnauthorized()
+                .expectHeader().value("Server-Timing", startsWith("auth;dur="));
+        client.get().uri("/admin").headers(bearer(tokens.user().groups(READERS))).exchange()
+                .expectStatus().isForbidden()
+                .expectHeader().value("Server-Timing", startsWith("auth;dur="));
+        client.get().uri("/public/ping").exchange()
+                .expectStatus().isOk()
+                .expectHeader().doesNotExist("Server-Timing");
+    }
+
+    @Test
     void missingTokenIs401ProblemJson() {
         client.get().uri("/orders").exchange()
                 .expectStatus().isUnauthorized()

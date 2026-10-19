@@ -35,7 +35,9 @@ import io.github.rmkrdev.entra.security.core.graph.GroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.ReactiveGraphGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.ReactiveGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.introspect.TokenIntrospector;
+import io.github.rmkrdev.entra.security.core.decision.AuthDecisionRecorder;
 import io.github.rmkrdev.entra.security.core.jwt.AuthenticationCache;
+import io.github.rmkrdev.entra.security.core.web.server.ReactiveAuthTiming;
 import io.github.rmkrdev.entra.security.core.jwt.EntraReactiveJwtDecoder;
 import io.github.rmkrdev.entra.security.core.jwt.EntraTokenClassifier;
 import io.github.rmkrdev.entra.security.core.jwt.ReactiveEntraJwtAuthenticationConverter;
@@ -139,9 +141,11 @@ public class EntraReactiveSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public EntraServerHttpSecurity entraServerHttpSecurity(ReactiveJwtDecoder jwtDecoder,
             ReactiveEntraJwtAuthenticationConverter converter, ServerProblemDetailsAuthenticationEntryPoint entryPoint,
-            ServerProblemDetailsAccessDeniedHandler accessDeniedHandler, EntraSecurityProperties properties) {
+            ServerProblemDetailsAccessDeniedHandler accessDeniedHandler, EntraSecurityProperties properties,
+            ObjectProvider<AuthDecisionRecorder> recorder) {
+        AuthDecisionRecorder decisions = recorder.getIfAvailable();
         return new EntraServerHttpSecurity(jwtDecoder, converter, entryPoint, accessDeniedHandler,
-                properties.getPublicPaths());
+                properties.getPublicPaths(), decisions == null ? null : new ReactiveAuthTiming(decisions));
     }
 
     /** WebClient for Graph that uses the {@code entra.security.http} timeouts. */

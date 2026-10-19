@@ -8,6 +8,8 @@ import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 
+import io.github.rmkrdev.entra.security.core.decision.AuthDecision;
+
 /**
  * Micrometer bindings for {@link EntraSecurityObservations}. Tag values are taken from a fixed set.
  */
@@ -22,6 +24,12 @@ final class MicrometerEntraSecurityObservations implements EntraSecurityObservat
 
     private static final Set<String> CREDENTIALS = Set.of("client_secret", "certificate", "workload_identity");
     private static final Set<String> GRANTS = Set.of(GRANT_CLIENT_CREDENTIALS, GRANT_ON_BEHALF_OF);
+
+    static final String AUTH_DURATION = "entra.security.auth.duration";
+    private static final Set<String> AUTH_OUTCOMES = Set.of(AuthDecision.SUCCESS, AuthDecision.UNAUTHENTICATED,
+            AuthDecision.FORBIDDEN, AuthDecision.ERROR);
+    private static final Set<String> TOKEN_TYPES = Set.of("user", "service", "unknown", "none");
+    private static final Set<String> MODES = Set.of("jwks", "introspection", "hybrid");
 
     private final MeterRegistry registry;
 
@@ -48,6 +56,22 @@ final class MicrometerEntraSecurityObservations implements EntraSecurityObservat
     public void tokenAcquisition(String grant, String credentialType, boolean success, Duration duration) {
         timer(TOKEN_ACQUISITIONS, "Calls to the Entra token endpoint", "result", result(success),
                 "credential", credential(credentialType), "grant", grant(grant)).record(duration(duration));
+    }
+
+    @Override
+    public void authDecision(AuthDecision decision) {
+        Timer.builder(AUTH_DURATION).description("Authentication work per API call: validation, role mapping, "
+                + "Graph and authorization")
+                .tags("outcome", bounded(decision.outcome(), AUTH_OUTCOMES, AuthDecision.ERROR),
+                        "token_type", bounded(decision.tokenType(), TOKEN_TYPES, "unknown"),
+                        "validation_mode", bounded(decision.validationMode(), MODES, "jwks"))
+                .publishPercentileHistogram()
+                .register(registry)
+                .record(decision.duration());
+    }
+
+    private static String bounded(String value, Set<String> allowed, String fallback) {
+        return allowed.contains(value) ? value : fallback;
     }
 
     @Override

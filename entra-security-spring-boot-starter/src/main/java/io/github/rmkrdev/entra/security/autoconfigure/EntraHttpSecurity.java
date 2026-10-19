@@ -1,5 +1,12 @@
 package io.github.rmkrdev.entra.security.autoconfigure;
 
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
+
+import io.github.rmkrdev.entra.security.core.web.ServletAuthTiming;
+
 import java.util.List;
 
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -35,10 +42,21 @@ public class EntraHttpSecurity {
     private final ProblemDetailsAuthenticationEntryPoint entryPoint;
     private final ProblemDetailsAccessDeniedHandler accessDeniedHandler;
     private final List<String> publicPaths;
+    private final ServletAuthTiming timing;
 
     public EntraHttpSecurity(JwtDecoder jwtDecoder, EntraJwtAuthenticationConverter converter,
             ProblemDetailsAuthenticationEntryPoint entryPoint, ProblemDetailsAccessDeniedHandler accessDeniedHandler,
             List<String> publicPaths) {
+        this(jwtDecoder, converter, entryPoint, accessDeniedHandler, publicPaths, null);
+    }
+
+    /**
+     * @param timing times each request's authentication work and records the decision; {@code null} disables it
+     */
+    public EntraHttpSecurity(JwtDecoder jwtDecoder, EntraJwtAuthenticationConverter converter,
+            ProblemDetailsAuthenticationEntryPoint entryPoint, ProblemDetailsAccessDeniedHandler accessDeniedHandler,
+            List<String> publicPaths, ServletAuthTiming timing) {
+        this.timing = timing;
         this.jwtDecoder = jwtDecoder;
         this.converter = converter;
         this.entryPoint = entryPoint;
@@ -47,6 +65,13 @@ public class EntraHttpSecurity {
     }
 
     public HttpSecurity configure(HttpSecurity http) throws Exception {
+        AuthenticationEntryPoint entryPoint = timing == null ? this.entryPoint : timing.wrap(this.entryPoint);
+        AccessDeniedHandler accessDeniedHandler = timing == null ? this.accessDeniedHandler
+                : timing.wrap(this.accessDeniedHandler);
+        if (timing != null) {
+            http.addFilterBefore(timing.startFilter(), BearerTokenAuthenticationFilter.class)
+                    .addFilterAfter(timing.endFilter(), AuthorizationFilter.class);
+        }
         http.csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> {
                 })

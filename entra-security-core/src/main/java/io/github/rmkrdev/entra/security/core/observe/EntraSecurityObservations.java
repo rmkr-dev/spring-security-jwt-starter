@@ -73,4 +73,10 @@ public interface EntraSecurityObservations {
      */
     default void introspection(String result, Duration duration) {
     }
+
+    /**
+     * The end of a request's authentication work (validation, role mapping, Graph and authorization).
+     */
+    default void authDecision(io.github.rmkrdev.entra.security.core.decision.AuthDecision decision) {
+    }
 }

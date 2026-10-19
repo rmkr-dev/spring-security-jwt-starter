@@ -6,6 +6,9 @@ import static io.github.rmkrdev.entra.security.support.EntraTestServer.TOKENS;
 import static io.github.rmkrdev.entra.security.support.EntraTestServer.WIRE_MOCK;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.matchesPattern;
+import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -102,6 +105,34 @@ class EntraObservabilityIntegrationTest {
     }
 
     @Test
+    void everyAuthDecisionIsTimedAndReturnedAsServerTiming() throws Exception {
+        long ok = timerCount("entra.security.auth.duration", "outcome", "success", "token_type", "user",
+                "validation_mode", "jwks");
+        long unauthenticated = timerCount("entra.security.auth.duration", "outcome", "unauthenticated");
+        long forbidden = timerCount("entra.security.auth.duration", "outcome", "forbidden", "token_type", "user");
+
+        mvc.perform(get("/orders").header("Authorization", "Bearer " + TOKENS.user().groups(READERS_GROUP).build()))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Server-Timing", matchesPattern("auth;dur=\\d+\\.\\d{3}")));
+        mvc.perform(get("/orders")).andExpect(status().isUnauthorized())
+                .andExpect(header().string("Server-Timing", startsWith("auth;dur=")));
+        mvc.perform(get("/orders").header("Authorization", "Bearer garbage")).andExpect(status().isUnauthorized())
+                .andExpect(header().exists("Server-Timing"));
+        mvc.perform(get("/admin").header("Authorization", "Bearer " + TOKENS.user().groups(READERS_GROUP).build()))
+                .andExpect(status().isForbidden())
+                .andExpect(header().string("Server-Timing", startsWith("auth;dur=")));
+        mvc.perform(get("/public/ping")).andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Server-Timing"));
+
+        assertThat(timerCount("entra.security.auth.duration", "outcome", "success", "token_type", "user",
+                "validation_mode", "jwks")).isEqualTo(ok + 1);
+        assertThat(timerCount("entra.security.auth.duration", "outcome", "unauthenticated")).isEqualTo(
+                unauthenticated + 2);
+        assertThat(timerCount("entra.security.auth.duration", "outcome", "forbidden", "token_type", "user"))
+                .isEqualTo(forbidden + 1);
+    }
+
+    @Test
     void graphLookupAndTokenAcquisitionAreMetered() throws Exception {
         String oid = UUID.randomUUID().toString();
         WIRE_MOCK.stubFor(WireMock.get(urlPathEqualTo("/v1.0/users/" + oid + "/transitiveMemberOf"))
@@ -131,8 +162,7 @@ class EntraObservabilityIntegrationTest {
     }
 
     private long timerCount(String name, String... tags) {
-        Timer timer = registry.find(name).tags(tags).timer();
-        return timer == null ? 0 : timer.count();
+        return registry.find(name).tags(tags).timers().stream().mapToLong(Timer::count).sum();
     }
 
     private static com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder okJsonGroups() {
