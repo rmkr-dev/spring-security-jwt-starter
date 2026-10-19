@@ -88,6 +88,43 @@ class EntraOutboundAutoConfigurationTest {
     }
 
     @Test
+    void caeIsOffByDefaultAndDeclaresCp1WhenEnabled() {
+        String[] props = { "entra.security.credential.type=client-secret",
+                "entra.security.credential.client-secret=top-secret",
+                "entra.security.outbound.clients.orders.scope=api://orders/.default",
+                "entra.security.outbound.clients.me.scope=api://me/.default",
+                "entra.security.outbound.clients.me.flow=on-behalf-of" };
+        runner.withPropertyValues(props).run(context -> {
+            assertThat(context.getBean(EntraOutboundClients.class).isCae()).isFalse();
+            assertThat(context).doesNotHaveBean(
+                    io.github.rmkrdev.entra.security.core.web.ClaimsChallengeExceptionHandler.class);
+        });
+        runner.withPropertyValues(props).withPropertyValues("entra.security.cae.enabled=true").run(context -> {
+            EntraOutboundClients outbound = context.getBean(EntraOutboundClients.class);
+            assertThat(outbound.isCae()).isTrue();
+            outbound.token("orders");
+            assertThat(outbound.interceptor("me")).isNotNull();
+            assertThat(EntraWebClientSupport.filter(outbound, "me", "api://me/x")).isNotNull();
+        });
+        wireMock.verify(postRequestedFor(urlEqualTo("/" + API_TENANT + "/oauth2/v2.0/token"))
+                .withRequestBody(containing("xms_cc")));
+        new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(EntraOutboundAutoConfiguration.class))
+                .withPropertyValues("entra.security.tenant-id=" + API_TENANT,
+                        "entra.security.client-id=22222222-2222-2222-2222-222222222222",
+                        "entra.security.cae.enabled=true")
+                .run(context -> assertThat(context).hasSingleBean(
+                        io.github.rmkrdev.entra.security.core.web.ClaimsChallengeExceptionHandler.class));
+        new ReactiveWebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(EntraOutboundAutoConfiguration.class))
+                .withPropertyValues("entra.security.tenant-id=" + API_TENANT,
+                        "entra.security.client-id=22222222-2222-2222-2222-222222222222",
+                        "entra.security.cae.enabled=true")
+                .run(context -> assertThat(context).hasSingleBean(
+                        io.github.rmkrdev.entra.security.core.web.server.ServerClaimsChallengeExceptionHandler.class));
+    }
+
+    @Test
     void workloadIdentityUsesAksWebhookEnvironment(@TempDir Path dir) throws Exception {
         Path tokenFile = dir.resolve("azure-identity-token");
         Files.writeString(tokenFile, "projected-sa-token");

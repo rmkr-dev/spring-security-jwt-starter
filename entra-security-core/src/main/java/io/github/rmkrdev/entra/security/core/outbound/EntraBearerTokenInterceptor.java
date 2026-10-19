@@ -16,16 +16,31 @@ public final class EntraBearerTokenInterceptor implements ClientHttpRequestInter
 
     private final EntraTokenProvider tokenProvider;
     private final String scope;
+    private final boolean cae;
 
     public EntraBearerTokenInterceptor(EntraTokenProvider tokenProvider, String scope) {
+        this(tokenProvider, scope, false);
+    }
+
+    /**
+     * @param cae when {@code true}, a {@code 401} with an {@code insufficient_claims} challenge is answered once with
+     *            a fresh token for the challenge claims
+     */
+    public EntraBearerTokenInterceptor(EntraTokenProvider tokenProvider, String scope, boolean cae) {
         this.tokenProvider = tokenProvider;
         this.scope = scope;
+        this.cae = cae;
     }
 
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
         request.getHeaders().setBearerAuth(tokenProvider.getToken(scope).value());
-        return execution.execute(request, body);
+        ClientHttpResponse response = execution.execute(request, body);
+        if (!cae) {
+            return response;
+        }
+        return OutboundClaimsChallenge.retry(request, body, execution, response,
+                claims -> tokenProvider.getToken(scope, claims));
     }
 }

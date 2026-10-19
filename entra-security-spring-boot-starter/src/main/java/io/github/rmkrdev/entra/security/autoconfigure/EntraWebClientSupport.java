@@ -30,9 +30,10 @@ public final class EntraWebClientSupport {
     public static ExchangeFilterFunction filter(EntraOutboundClients clients, String name) {
         EntraOutboundClients.Client client = clients.client(name);
         if (client.flow() == OutboundFlow.ON_BEHALF_OF) {
-            return new EntraOnBehalfOfExchangeFilterFunction(client.onBehalfOfTokenProvider(), client.scope());
+            return new EntraOnBehalfOfExchangeFilterFunction(client.onBehalfOfTokenProvider(), client.scope(),
+                    clients.isCae());
         }
-        return new EntraBearerExchangeFilterFunction(client.tokenProvider(), client.scope());
+        return new EntraBearerExchangeFilterFunction(client.tokenProvider(), client.scope(), clients.isCae());
     }
 
     /** The named client's filter with another scope. */
@@ -40,9 +41,10 @@ public final class EntraWebClientSupport {
         EntraOutboundClients.Client client = clients.client(name);
         String effective = scope == null || scope.isBlank() ? client.scope() : scope;
         if (client.flow() == OutboundFlow.ON_BEHALF_OF) {
-            return new EntraOnBehalfOfExchangeFilterFunction(client.onBehalfOfTokenProvider(), effective);
+            return new EntraOnBehalfOfExchangeFilterFunction(client.onBehalfOfTokenProvider(), effective,
+                    clients.isCae());
         }
-        return new EntraBearerExchangeFilterFunction(client.tokenProvider(), effective);
+        return new EntraBearerExchangeFilterFunction(client.tokenProvider(), effective, clients.isCae());
     }
 
     /**

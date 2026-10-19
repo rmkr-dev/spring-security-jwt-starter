@@ -49,6 +49,7 @@ public class EntraOutboundClients {
     private final Map<String, Client> clients;
     private final List<Route> routes;
     private final List<OutboundTarget> skipHosts;
+    private boolean cae;
 
     public EntraOutboundClients(Map<String, Client> clients) {
         this(clients, List.of(), List.of());
@@ -65,6 +66,21 @@ public class EntraOutboundClients {
         }
         this.routes = List.copyOf(routes);
         this.skipHosts = List.copyOf(skipHosts);
+    }
+
+    /**
+     * Answer {@code insufficient_claims} challenges from downstream APIs once with a fresh token
+     * ({@code entra.security.cae.enabled}).
+     *
+     * @return this
+     */
+    public EntraOutboundClients withCae(boolean cae) {
+        this.cae = cae;
+        return this;
+    }
+
+    public boolean isCae() {
+        return cae;
     }
 
     public Set<String> names() {
@@ -143,9 +159,10 @@ public class EntraOutboundClients {
     public ClientHttpRequestInterceptor interceptor(String name) {
         Client client = client(name);
         if (client.flow() == OutboundFlow.ON_BEHALF_OF) {
-            return new EntraOnBehalfOfInterceptor(client.onBehalfOfTokenProvider(), client.scope());
+            return new EntraOnBehalfOfInterceptor(client.onBehalfOfTokenProvider(), client.scope(),
+                    () -> EntraUserTokens.current().orElse(null), cae);
         }
-        return new EntraBearerTokenInterceptor(client.tokenProvider(), client.scope());
+        return new EntraBearerTokenInterceptor(client.tokenProvider(), client.scope(), cae);
     }
 
     /**
@@ -155,9 +172,10 @@ public class EntraOutboundClients {
         Client client = client(name);
         String effective = scope == null || scope.isBlank() ? client.scope() : scope;
         if (client.flow() == OutboundFlow.ON_BEHALF_OF) {
-            return new EntraOnBehalfOfInterceptor(client.onBehalfOfTokenProvider(), effective);
+            return new EntraOnBehalfOfInterceptor(client.onBehalfOfTokenProvider(), effective,
+                    () -> EntraUserTokens.current().orElse(null), cae);
         }
-        return new EntraBearerTokenInterceptor(client.tokenProvider(), effective);
+        return new EntraBearerTokenInterceptor(client.tokenProvider(), effective, cae);
     }
 
     /** The configured routes, in order. */

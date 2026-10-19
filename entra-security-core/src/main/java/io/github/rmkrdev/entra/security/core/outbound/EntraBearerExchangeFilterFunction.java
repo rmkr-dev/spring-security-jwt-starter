@@ -17,18 +17,28 @@ public final class EntraBearerExchangeFilterFunction implements ExchangeFilterFu
 
     private final EntraTokenProvider tokenProvider;
     private final String scope;
+    private final boolean cae;
 
     public EntraBearerExchangeFilterFunction(EntraTokenProvider tokenProvider, String scope) {
+        this(tokenProvider, scope, false);
+    }
+
+    /**
+     * @param cae when {@code true}, a {@code 401} with an {@code insufficient_claims} challenge is answered once with
+     *            a fresh token for the challenge claims
+     */
+    public EntraBearerExchangeFilterFunction(EntraTokenProvider tokenProvider, String scope, boolean cae) {
         this.tokenProvider = tokenProvider;
         this.scope = scope;
+        this.cae = cae;
     }
 
     @Override
     public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
         return Mono.fromCallable(() -> tokenProvider.getToken(scope))
                 .subscribeOn(Schedulers.boundedElastic())
-                .flatMap(token -> next.exchange(ClientRequest.from(request)
-                        .headers(headers -> headers.setBearerAuth(token.value()))
-                        .build()));
+                .flatMap(token -> next.exchange(OutboundClaimsChallenge.withToken(request, token)))
+                .flatMap(response -> cae ? OutboundClaimsChallenge.retry(request, next, response,
+                        claims -> tokenProvider.getToken(scope, claims)) : Mono.just(response));
     }
 }

@@ -26,6 +26,7 @@ import org.springframework.web.client.RestClient;
 
 import io.github.rmkrdev.entra.security.core.jwt.EntraClaimNames;
 import io.github.rmkrdev.entra.security.core.jwt.EntraTokenClassifier;
+import io.github.rmkrdev.entra.security.core.cae.ContinuousAccessEvaluation;
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.principal.PrincipalType;
 
@@ -69,6 +70,8 @@ public final class OnBehalfOfTokenProvider implements EntraOnBehalfOfTokenProvid
     private final Map<String, CachedToken> cache = new ConcurrentHashMap<>();
     private final Object[] locks = new Object[LOCK_STRIPES];
 
+    private volatile boolean clientCapabilities;
+
     /**
      * @param tokenEndpoint the token endpoint, see {@link ClientCredentialsTokenProvider#tokenEndpoint(URI, String)}
      * @param clientId      this API's client (application) id; the audience of the incoming tokens
@@ -94,6 +97,31 @@ public final class OnBehalfOfTokenProvider implements EntraOnBehalfOfTokenProvid
         this.clock = clock;
         this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
         Arrays.setAll(locks, i -> new Object());
+    }
+
+    /**
+     * Declares the {@code cp1} client capability on every token request, so Entra issues CAE-capable tokens.
+     *
+     * @return this provider
+     */
+    public OnBehalfOfTokenProvider withClientCapabilities() {
+        this.clientCapabilities = true;
+        return this;
+    }
+
+    @Override
+    public AccessToken getToken(Jwt userToken, String scope, String claims) {
+        if (claims == null || claims.isBlank()) {
+            return getToken(userToken, scope);
+        }
+        String normalizedScope = normalizeScope(scope);
+        requireDelegated(userToken);
+        String key = cacheKey(userToken, normalizedScope);
+        synchronized (locks[Math.floorMod(key.hashCode(), LOCK_STRIPES)]) {
+            CachedToken fresh = fetch(userToken, normalizedScope, claims);
+            store(key, fresh);
+            return fresh.token();
+        }
     }
 
     @Override
@@ -199,9 +227,13 @@ public final class OnBehalfOfTokenProvider implements EntraOnBehalfOfTokenProvid
     }
 
     private CachedToken fetch(Jwt userToken, String scope) {
+        return fetch(userToken, scope, null);
+    }
+
+    private CachedToken fetch(Jwt userToken, String scope, String challenge) {
         long start = System.nanoTime();
         try {
-            CachedToken fresh = requestToken(userToken, scope);
+            CachedToken fresh = requestToken(userToken, scope, challenge);
             observations.tokenAcquisition(EntraSecurityObservations.GRANT_ON_BEHALF_OF, credential.credentialType(),
                     true, Duration.ofNanos(System.nanoTime() - start));
             return fresh;
@@ -213,13 +245,17 @@ public final class OnBehalfOfTokenProvider implements EntraOnBehalfOfTokenProvid
         }
     }
 
-    private CachedToken requestToken(Jwt userToken, String scope) {
+    private CachedToken requestToken(Jwt userToken, String scope, String challenge) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", GRANT_TYPE_JWT_BEARER);
         form.add("client_id", clientId);
         form.add("assertion", userToken.getTokenValue());
         form.add("scope", scope);
         form.add("requested_token_use", "on_behalf_of");
+        String claims = ContinuousAccessEvaluation.requestClaims(clientCapabilities, challenge);
+        if (claims != null) {
+            form.add("claims", claims);
+        }
         credential.contribute(form, tokenEndpoint, clientId);
         TokenEndpointClient.IssuedToken issued = endpoint.request(form, error -> toException(error, scope));
         return new CachedToken(issued.token(), TokenEndpointClient.refreshAt(issued, refreshSkew));

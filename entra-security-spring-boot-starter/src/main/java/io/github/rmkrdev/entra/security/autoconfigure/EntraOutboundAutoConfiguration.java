@@ -20,7 +20,9 @@ import org.springframework.core.env.Environment;
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties.OutboundFlow;
 import io.github.rmkrdev.entra.security.autoconfigure.keyvault.KeyVaultCredentialFactory;
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
+import io.github.rmkrdev.entra.security.core.web.ClaimsChallengeExceptionHandler;
 import io.github.rmkrdev.entra.security.core.web.InteractionRequiredExceptionHandler;
+import io.github.rmkrdev.entra.security.core.web.server.ServerClaimsChallengeExceptionHandler;
 import io.github.rmkrdev.entra.security.core.web.server.ServerInteractionRequiredExceptionHandler;
 
 /**
@@ -55,7 +57,8 @@ public class EntraOutboundAutoConfiguration {
                 .map(route -> new EntraOutboundClients.Route(route.displayName(), route.targets(), route.getClient(),
                         route.getScope()))
                 .toList();
-        return new EntraOutboundClients(clients, routes, properties.getOutbound().skipTargets());
+        return new EntraOutboundClients(clients, routes, properties.getOutbound().skipTargets())
+                .withCae(properties.getCae().isEnabled());
     }
 
     /** Adds the outbound routes to Spring Boot's {@code RestClient.Builder}. */
@@ -103,6 +106,34 @@ public class EntraOutboundAutoConfiguration {
         @ConditionalOnMissingBean
         InteractionRequiredExceptionHandler entraInteractionRequiredExceptionHandler() {
             return new InteractionRequiredExceptionHandler();
+        }
+    }
+
+    /** Renders {@code ClaimsChallengeException} (servlet) when {@code entra.security.cae.enabled=true}. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
+    @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "cae.enabled", havingValue = "true")
+    static class ServletClaimsChallengeConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        ClaimsChallengeExceptionHandler entraClaimsChallengeExceptionHandler() {
+            return new ClaimsChallengeExceptionHandler();
+        }
+    }
+
+    /** Renders {@code ClaimsChallengeException} (WebFlux) when {@code entra.security.cae.enabled=true}. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
+    @ConditionalOnClass(name = "org.springframework.web.reactive.DispatcherHandler")
+    @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "cae.enabled", havingValue = "true")
+    static class ReactiveClaimsChallengeConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        ServerClaimsChallengeExceptionHandler entraServerClaimsChallengeExceptionHandler() {
+            return new ServerClaimsChallengeExceptionHandler();
         }
     }
 

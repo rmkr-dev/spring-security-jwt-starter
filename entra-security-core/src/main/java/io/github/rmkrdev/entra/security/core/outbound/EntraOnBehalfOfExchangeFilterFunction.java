@@ -28,10 +28,21 @@ public final class EntraOnBehalfOfExchangeFilterFunction implements ExchangeFilt
 
     private final EntraOnBehalfOfTokenProvider tokenProvider;
     private final String scope;
+    private final boolean cae;
 
     public EntraOnBehalfOfExchangeFilterFunction(EntraOnBehalfOfTokenProvider tokenProvider, String scope) {
+        this(tokenProvider, scope, false);
+    }
+
+    /**
+     * @param cae when {@code true}, a {@code 401} with an {@code insufficient_claims} challenge is answered once with
+     *            a fresh token for the challenge claims
+     */
+    public EntraOnBehalfOfExchangeFilterFunction(EntraOnBehalfOfTokenProvider tokenProvider, String scope,
+            boolean cae) {
         this.tokenProvider = tokenProvider;
         this.scope = scope;
+        this.cae = cae;
     }
 
     @Override
@@ -43,9 +54,9 @@ public final class EntraOnBehalfOfExchangeFilterFunction implements ExchangeFilt
                 .switchIfEmpty(Mono.justOrEmpty(threadToken))
                 .switchIfEmpty(Mono.error(EntraUserTokens::missing))
                 .flatMap(jwt -> Mono.fromCallable(() -> tokenProvider.getToken(jwt, scope))
-                        .subscribeOn(Schedulers.boundedElastic()))
-                .flatMap(token -> next.exchange(ClientRequest.from(request)
-                        .headers(headers -> headers.setBearerAuth(token.value()))
-                        .build()));
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .flatMap(token -> next.exchange(OutboundClaimsChallenge.withToken(request, token)))
+                        .flatMap(response -> cae ? OutboundClaimsChallenge.retry(request, next, response,
+                                claims -> tokenProvider.getToken(jwt, scope, claims)) : Mono.just(response)));
     }
 }
