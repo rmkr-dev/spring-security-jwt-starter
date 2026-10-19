@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-19
+
 ### Added
 
 - Outbound routing: `entra.security.outbound.routes` maps URL patterns (`urls`) or hosts (`hosts` with
@@ -16,10 +18,10 @@ All notable changes to this project are documented here. The format follows
   matches only in-cluster and loopback hosts unless `allow-http` is set. Spring Boot's `RestClient.Builder`
   and `WebClient.Builder` get the routes automatically (`outbound.customize-builders`, default `true`).
   `EntraOutboundClients#routingInterceptor()` and `EntraWebClientSupport#routingFilter(...)` cover
-  hand-built clients. Routes are validated at startup.
-- `docs/service-to-service.md`: inbound app-role mapping and outbound routing, with sequence diagrams.
+  hand-built clients. Routes are validated at startup. (#14)
+- `docs/service-to-service.md`: inbound app-role mapping and outbound routing, with sequence diagrams. (#14)
 
-- Optional remote token validation with `entra.security.validation.mode`: `jwks` (default, unchanged),
+- Optional remote token validation with `entra.security.validation.mode` (#13): `jwks` (default, unchanged),
   `introspection` or `hybrid`. JWKS stays the recommended and fastest option for Entra ID tokens.
   - Microsoft Entra ID has no RFC 7662 introspection endpoint. `introspection.type=rfc7662` (the default)
     is meant for gateways and custom authorization servers. `introspection.type=userinfo` presents the
@@ -47,7 +49,7 @@ All notable changes to this project are documented here. The format follows
     `rejected`). The JWKS health indicator and the JWKS preload are skipped in `introspection` mode.
 - `TtlCache.put(key, value, ttl)` for per-entry lifetimes.
 
-- Custom tenant and authority endpoints under `entra.security.authority.*`, all optional and bindable from a
+- Custom tenant and authority endpoints under `entra.security.authority.*` (#12), all optional and bindable from a
   ConfigMap or environment variables: `host` (sovereign clouds, B2C, CIAM, custom domains), `tenant-path`
   (for example `contoso.onmicrosoft.com/B2C_1_signin`), `issuers`, `jwks-uri`, `token-endpoint`,
   `authorize-endpoint`, `metadata-uri`, `userinfo-endpoint`, `graph-base-url` and `allow-http`.
@@ -63,10 +65,51 @@ All notable changes to this project are documented here. The format follows
 - `EntraMockAuthority.start(String publicHost)` serves the mock authority under a custom host name. Its
   discovery document now also lists `authorization_endpoint`.
 
+- JWKS pre-warm and validation caches (#15): the JWKS is loaded at startup and refreshed in the background before
+  it expires, so no request waits for it. Validated tokens (`cache.validated-token-ttl`, default `5m`) and the
+  principal plus role mapping per token, including the Graph overage result (`cache.authentication-ttl`,
+  default `5m`), are cached by a SHA-256 key and never past `exp`. Failures are never cached. Outbound and Graph
+  app tokens are renewed in the background (`cache.token-background-refresh`). New properties:
+  `cache.jwks-prewarm`, `cache.jwks-refresh-ahead`, `cache.validated-token-ttl`,
+  `cache.validated-token-max-entries`, `cache.authentication-ttl`, `cache.authentication-max-entries`,
+  `cache.token-background-refresh`. Token, Graph, discovery and introspection calls share one pooled
+  keep-alive `HttpClient`. `ValidationTimingTest` guards the budget.
+- Auth timing (#16): timer `entra.security.auth.duration` (tags `outcome`, `token_type`, `validation_mode`, with a
+  percentile histogram) and a `Server-Timing: auth;dur=<ms>` response header
+  (`observability.server-timing`, default `true`), on servlet and WebFlux. Each decision is passed to
+  `AuthDecisionListener` beans.
+- Audit line per auth decision (#17) on the `entra.security.audit` logger, to stdout as `json` (default) or
+  `flat` (`audit.format`, `audit.enabled`). Fields: ts, traceId, outcome, reason, tokenType, validationMode,
+  tid, oid or appid, roles, method, path and authMs. Tokens, names, UPNs, e-mail addresses and query strings
+  are never logged. There is no log-shipper-specific configuration.
+- Role-pattern allow (#18): `authorization.allow-role-patterns` (globs or `regex:`) and
+  `authorization.allow-role-patterns-case-sensitive`. Off by default. A matching role passes `@Secured`,
+  `@PreAuthorize`, `@PostAuthorize` and `@RolesAllowed` on servlet and WebFlux. Startup WARN, first-use INFO
+  and `reason=role_pattern` in the audit line.
+- Startup self-check (#19): `self-check.mode=warn|fail|off` (default `warn`) checks GUID formats, that an
+  audience is set, that the JWKS returns keys or the introspection endpoint answers, and that every outbound
+  client has a usable credential.
+- Thin Continuous Access Evaluation (#20), `cae.enabled` (default `false`): outbound token requests declare
+  `cp1` and retry once on `insufficient_claims`. `ClaimsChallengeException` becomes a 401 claims challenge for
+  `cp1`-capable callers, and a 403 for everyone else.
+- Monitoring (#21): Datadog through `micrometer-registry-datadog` is the documented backend, with client-side
+  p50/p95/p99 for the `entra.security` timers (`monitoring.datadog.percentiles`, default `true`). Prometheus is
+  opt-in: the entra meters reach a Prometheus registry only when `micrometer-registry-prometheus` is present
+  and `monitoring.prometheus.enabled=true`. `monitoring.tags.*` adds common tags to every `entra.security.*`
+  meter. There's a sample Grafana dashboard in `docs/grafana/`.
+
 ### Changed
 
 - Tests resolve host names through a test-only hosts file (`-Djdk.net.hosts.file`) in the starter and test
   modules, so custom authority and service host names reach local mocks and nothing reaches the network.
+- Default outbound HTTP timeouts (`http.connect-timeout` / `http.read-timeout`) are now `2s` / `3s` instead of
+  `5s` / `10s` (#15).
+- The refresh-ahead window is capped so it can no longer exceed what Nimbus accepts (#15).
+- Mock tokens from `entra-security-test` get unique values so they don't collide in the validation cache (#15).
+- Documentation rewritten as a diagram-first set under `docs/` with a short README (#22): architecture,
+  quickstart, user flow, service-to-service, on-behalf-of, validation modes, a single configuration
+  reference, onboarding, deployment, observability, role patterns, performance, CAE, testing and
+  troubleshooting. Diagrams are rendered to `docs/diagrams/` with `scripts/render-diagrams.sh`.
 
 ## [0.6.0] - 2026-10-18
 
@@ -258,7 +301,8 @@ All notable changes to this project are documented here. The format follows
 - Tests against locally generated RSA keys and WireMock (JWKS, token endpoint, Graph); GitHub Actions on
   Java 17 and 21.
 
-[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.3.0...v0.4.0
