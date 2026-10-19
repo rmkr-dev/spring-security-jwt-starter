@@ -248,6 +248,9 @@ Tokens are cached per scope and renewed `cache.token-refresh-skew` before expiry
 
 Each outbound client can override `credential.*`; otherwise it uses `entra.security.credential`.
 
+To call several peers through one `RestClient` or `WebClient`, map URLs or hosts to clients with
+`entra.security.outbound.routes`. See [docs/service-to-service.md](docs/service-to-service.md).
+
 ### Encrypted PEM keys
 
 A PEM file can hold the private key encrypted, as PKCS#8 `ENCRYPTED PRIVATE KEY`. Put the password in
@@ -674,6 +677,11 @@ names the property.
 | `outbound.clients.<name>.scope` | **required** | Scope for the peer: `api://<peer>/.default`, or delegated scopes such as `api://<peer>/Orders.Read` for `on-behalf-of`. |
 | `outbound.clients.<name>.base-url` | — | Peer base URL. |
 | `outbound.clients.<name>.credential.*` | `entra.security.credential` | Per-client credential. |
+| `outbound.routes[n].urls` / `hosts` / `paths` | — | Requests a route applies to: URL patterns, or host patterns (`*.domain`, optional `:port`) with Ant-style paths. See [service-to-service](docs/service-to-service.md). |
+| `outbound.routes[n].client` / `scope` | **required** / client scope | Outbound client used for matching requests, and an optional scope for this route. |
+| `outbound.routes[n].allow-http` | in-cluster and loopback only | Whether `hosts` match over plain http. |
+| `outbound.skip-hosts` | — | Hosts that never get a token from the routes. |
+| `outbound.customize-builders` | `true` | Add the routes to Spring Boot's `RestClient.Builder` and `WebClient.Builder`. |
 | `cache.jwks-ttl` | `15m` | JWKS cache lifetime (unknown `kid`s trigger a rate-limited refresh). |
 | `cache.token-refresh-skew` | `5m` | Renew acquired tokens this long before expiry. |
 | `cache.on-behalf-of-max-entries` | `10000` | On-behalf-of tokens cached per outbound client (users × scopes). |

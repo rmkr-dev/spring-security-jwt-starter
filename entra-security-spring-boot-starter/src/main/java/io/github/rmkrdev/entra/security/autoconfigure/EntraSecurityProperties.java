@@ -18,6 +18,7 @@ import org.springframework.validation.annotation.Validated;
 
 import io.github.rmkrdev.entra.security.core.authority.CompactRoleMappings;
 import io.github.rmkrdev.entra.security.core.authority.CompactRoleMappings.KeyType;
+import io.github.rmkrdev.entra.security.core.outbound.OutboundTarget;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
@@ -284,6 +285,7 @@ public class EntraSecurityProperties implements Validator {
         validateCompact(errors, "appRoleMappingsCompact", properties::resolveAppRoleMappings);
         validateCompact(errors, "clientRoleMappingsCompact", properties::resolveClientRoleMappings);
         properties.getAuthority().validate(errors);
+        properties.getOutbound().validate(errors);
         String introspectionUri = Authority.uriProblem(properties.getValidation().getIntrospection().getUri(),
                 properties.getAuthority().isAllowHttp());
         if (introspectionUri != null) {
@@ -1425,6 +1427,211 @@ public class EntraSecurityProperties implements Validator {
 
         public void setClients(Map<String, OutboundClient> clients) {
             this.clients = clients;
+        }
+
+        /**
+         * Routes that pick the outbound client (and optionally the scope) per request, by URL pattern or host,
+         * so one RestClient or WebClient can call several peers. The first matching route wins; requests that
+         * match no route are sent without a token.
+         */
+        @Valid
+        private List<OutboundRoute> routes = new ArrayList<>();
+
+        /**
+         * Hosts that never get a token from the routes, even when a route matches, for example
+         * public.shop.svc.cluster.local or *.blob.core.windows.net. An optional :port restricts the port.
+         */
+        private List<String> skipHosts = new ArrayList<>();
+
+        /**
+         * Whether the routes are added to every RestClient.Builder and WebClient.Builder that Spring Boot
+         * provides. Turn this off to apply them yourself with EntraOutboundClients#routingInterceptor().
+         */
+        private boolean customizeBuilders = true;
+
+        public List<OutboundRoute> getRoutes() {
+            return routes;
+        }
+
+        public void setRoutes(List<OutboundRoute> routes) {
+            this.routes = routes;
+        }
+
+        public List<String> getSkipHosts() {
+            return skipHosts;
+        }
+
+        public void setSkipHosts(List<String> skipHosts) {
+            this.skipHosts = skipHosts;
+        }
+
+        public boolean isCustomizeBuilders() {
+            return customizeBuilders;
+        }
+
+        public void setCustomizeBuilders(boolean customizeBuilders) {
+            this.customizeBuilders = customizeBuilders;
+        }
+
+        void validate(Errors errors) {
+            for (int i = 0; i < routes.size(); i++) {
+                OutboundRoute route = routes.get(i);
+                String field = "outbound.routes[" + i + "]";
+                String key = PREFIX + "." + field;
+                if (route.getClient() == null || route.getClient().isBlank()) {
+                    errors.rejectValue(field + ".client", "missingRouteClient", key + ".client must name one of "
+                            + "entra.security.outbound.clients " + clients.keySet());
+                }
+                else if (!clients.containsKey(route.getClient())) {
+                    errors.rejectValue(field + ".client", "unknownRouteClient", key + ".client '"
+                            + route.getClient() + "' is not configured under entra.security.outbound.clients "
+                            + clients.keySet());
+                }
+                if (route.getUrls().isEmpty() && route.getHosts().isEmpty()) {
+                    errors.rejectValue(field, "emptyRoute", key + " needs urls or hosts");
+                }
+                if (!route.getUrls().isEmpty() && !route.getPaths().isEmpty()) {
+                    errors.rejectValue(field + ".paths", "pathsWithUrls", key + ".paths only applies to hosts; "
+                            + "put the path into the url pattern instead");
+                }
+                try {
+                    route.targets();
+                }
+                catch (IllegalArgumentException ex) {
+                    errors.rejectValue(field, "invalidRoute", key + ": " + ex.getMessage());
+                }
+            }
+            for (int i = 0; i < skipHosts.size(); i++) {
+                try {
+                    OutboundTarget.host(skipHosts.get(i), null, List.of());
+                }
+                catch (IllegalArgumentException | NullPointerException ex) {
+                    errors.rejectValue("outbound.skipHosts", "invalidSkipHost",
+                            PREFIX + ".outbound.skip-hosts[" + i + "]: " + ex.getMessage());
+                }
+            }
+        }
+
+        List<OutboundTarget> skipTargets() {
+            return skipHosts.stream().map(host -> OutboundTarget.host(host, null, List.of())).toList();
+        }
+    }
+
+    /** Maps outgoing requests to an outbound client by URL pattern or host. */
+    public static class OutboundRoute {
+
+        /** Optional name used in log messages. Defaults to the client name. */
+        private String name;
+
+        /**
+         * URL patterns such as https://example.text.com/api/** or http://*.shop.svc.cluster.local/**. The
+         * scheme is matched exactly, the host may start with *. and the path is an Ant-style pattern.
+         */
+        private List<String> urls = new ArrayList<>();
+
+        /**
+         * Host patterns such as orders.shop.svc.cluster.local, *.shop.svc.cluster.local or
+         * partner.example.test:8443. https always matches; http only for *.svc, *.svc.cluster.local and
+         * loopback hosts unless allow-http says otherwise.
+         */
+        private List<String> hosts = new ArrayList<>();
+
+        /** Ant-style path patterns that restrict the hosts, for example /api/**. Empty matches every path. */
+        private List<String> paths = new ArrayList<>();
+
+        /** The outbound client (a key of entra.security.outbound.clients) whose credential and flow are used. */
+        private String client;
+
+        /** Optional scope for this route instead of the client's scope. */
+        private String scope;
+
+        /**
+         * Whether hosts match over plain http. Unset allows http only for in-cluster and loopback hosts;
+         * true is needed for other http hosts, false refuses http everywhere.
+         */
+        private Boolean allowHttp;
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public List<String> getUrls() {
+            return urls;
+        }
+
+        public void setUrls(List<String> urls) {
+            this.urls = urls;
+        }
+
+        public List<String> getHosts() {
+            return hosts;
+        }
+
+        public void setHosts(List<String> hosts) {
+            this.hosts = hosts;
+        }
+
+        public List<String> getPaths() {
+            return paths;
+        }
+
+        public void setPaths(List<String> paths) {
+            this.paths = paths;
+        }
+
+        public String getClient() {
+            return client;
+        }
+
+        public void setClient(String client) {
+            this.client = client;
+        }
+
+        public String getScope() {
+            return scope;
+        }
+
+        public void setScope(String scope) {
+            this.scope = scope;
+        }
+
+        public Boolean getAllowHttp() {
+            return allowHttp;
+        }
+
+        public void setAllowHttp(Boolean allowHttp) {
+            this.allowHttp = allowHttp;
+        }
+
+        /** The name for log messages. */
+        public String displayName() {
+            return name != null && !name.isBlank() ? name : client;
+        }
+
+        /**
+         * The parsed targets.
+         *
+         * @throws IllegalArgumentException when a pattern is invalid
+         */
+        public List<OutboundTarget> targets() {
+            List<OutboundTarget> targets = new ArrayList<>();
+            for (String url : urls) {
+                if (url == null || url.isBlank()) {
+                    throw new IllegalArgumentException("urls must not contain blank entries");
+                }
+                targets.add(OutboundTarget.url(url.trim()));
+            }
+            for (String host : hosts) {
+                if (host == null || host.isBlank()) {
+                    throw new IllegalArgumentException("hosts must not contain blank entries");
+                }
+                targets.add(OutboundTarget.host(host.trim(), allowHttp, paths));
+            }
+            return targets;
         }
     }
 

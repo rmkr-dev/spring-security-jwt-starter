@@ -214,4 +214,120 @@ class EntraOutboundAutoConfigurationTest {
         runner.run(context -> assertThatThrownBy(() -> context.getBean(EntraOutboundClients.class).interceptor("x"))
                 .hasMessageContaining("entra.security.outbound.clients"));
     }
+
+    @Test
+    void routesPickTheClientAndScopeForOnBehalfOfCalls() {
+        wireMock.stubFor(post("/" + API_TENANT + "/oauth2/v2.0/token")
+                .withRequestBody(containing("Profile.Read"))
+                .willReturn(okJson("{\"expires_in\":3600,\"access_token\":\"obo-routed\"}")));
+        runner.withPropertyValues("entra.security.credential.type=client-secret",
+                "entra.security.credential.client-secret=s",
+                "entra.security.outbound.clients.profile.flow=on-behalf-of",
+                "entra.security.outbound.clients.profile.scope=api://profile/.default",
+                "entra.security.outbound.routes[0].hosts[0]=localhost",
+                "entra.security.outbound.routes[0].paths[0]=/peer",
+                "entra.security.outbound.routes[0].client=profile",
+                "entra.security.outbound.routes[0].scope=api://profile/Profile.Read")
+                .run(context -> {
+                    EntraOutboundClients outbound = context.getBean(EntraOutboundClients.class);
+                    Jwt user = Jwt.withTokenValue("incoming").header("alg", "RS256")
+                            .claim("oid", "u1").claim("scp", "access_as_user").build();
+                    SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(user));
+                    try {
+                        RestClient client = RestClient.builder().requestInterceptor(outbound.routingInterceptor())
+                                .build();
+                        assertThat(client.get().uri(wireMock.baseUrl() + "/peer").retrieve().body(String.class))
+                                .isEqualTo("pong");
+                        WebClient web = WebClient.builder().filter(EntraWebClientSupport.routingFilter(outbound))
+                                .build();
+                        assertThat(web.get().uri(wireMock.baseUrl() + "/peer").retrieve().bodyToMono(String.class)
+                                .block()).isEqualTo("pong");
+                    }
+                    finally {
+                        SecurityContextHolder.clearContext();
+                    }
+                });
+        wireMock.verify(2, getRequestedFor(urlEqualTo("/peer")).withHeader("Authorization",
+                equalTo("Bearer obo-routed")));
+    }
+
+    @Test
+    void customizersAreRegisteredUnlessTurnedOff() {
+        runner.withPropertyValues("entra.security.credential.type=client-secret",
+                "entra.security.credential.client-secret=s")
+                .run(context -> {
+                    assertThat(context).hasBean("entraOutboundRoutingRestClientCustomizer");
+                    assertThat(context).hasBean("entraOutboundRoutingWebClientCustomizer");
+                    assertThat(context.getBean(EntraOutboundClients.class).hasRoutes()).isFalse();
+                    RestClient.Builder builder = RestClient.builder();
+                    context.getBean(org.springframework.boot.web.client.RestClientCustomizer.class).customize(builder);
+                    WebClient.Builder web = WebClient.builder();
+                    context.getBean(org.springframework.boot.web.reactive.function.client.WebClientCustomizer.class)
+                            .customize(web);
+                    web.filters(filters -> assertThat(filters).isEmpty());
+                });
+        runner.withPropertyValues("entra.security.outbound.customize-builders=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean("entraOutboundRoutingRestClientCustomizer");
+                    assertThat(context).doesNotHaveBean("entraOutboundRoutingWebClientCustomizer");
+                });
+    }
+
+    @Test
+    void customizersAddTheRoutesToBuilders() {
+        runner.withPropertyValues("entra.security.credential.type=client-secret",
+                "entra.security.credential.client-secret=s",
+                "entra.security.outbound.clients.orders.scope=api://orders/.default",
+                "entra.security.outbound.routes[0].urls[0]=http://localhost:" + wireMock.port() + "/peer",
+                "entra.security.outbound.routes[0].client=orders")
+                .run(context -> {
+                    RestClient.Builder builder = RestClient.builder();
+                    context.getBean(org.springframework.boot.web.client.RestClientCustomizer.class).customize(builder);
+                    assertThat(builder.build().get().uri(wireMock.baseUrl() + "/peer").retrieve().body(String.class))
+                            .isEqualTo("pong");
+                    WebClient.Builder web = WebClient.builder();
+                    context.getBean(org.springframework.boot.web.reactive.function.client.WebClientCustomizer.class)
+                            .customize(web);
+                    web.filters(filters -> assertThat(filters).hasSize(1));
+                });
+        wireMock.verify(getRequestedFor(urlEqualTo("/peer")).withHeader("Authorization",
+                equalTo("Bearer secret-token")));
+    }
+
+    @Test
+    void invalidRoutesFailAtStartupWithTheProperty() {
+        String base = "entra.security.outbound.routes[0].";
+        runner.withPropertyValues(base + "hosts[0]=orders.svc", base + "client=missing")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("routes[0].client 'missing' is not configured"));
+        runner.withPropertyValues(base + "hosts[0]=orders.svc")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("routes[0].client must name one of"));
+        runner.withPropertyValues("entra.security.outbound.clients.orders.scope=api://orders/.default",
+                base + "client=orders")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("needs urls or hosts"));
+        runner.withPropertyValues("entra.security.outbound.clients.orders.scope=api://orders/.default",
+                base + "client=orders", base + "urls[0]=example.text.com/api")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("must start with http:// or https://"));
+        runner.withPropertyValues("entra.security.outbound.clients.orders.scope=api://orders/.default",
+                base + "client=orders", base + "urls[0]=https://example.text.com", base + "paths[0]=/api/**")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("paths only applies to hosts"));
+        runner.withPropertyValues("entra.security.outbound.clients.orders.scope=api://orders/.default",
+                base + "client=orders", base + "hosts[0]= ")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("hosts must not contain blank entries"));
+        runner.withPropertyValues("entra.security.outbound.skip-hosts[0]=a*b.test")
+                .run(context -> assertThat(context).getFailure().rootCause()
+                        .hasMessageContaining("skip-hosts[0]"));
+    }
+
+    @Test
+    void routeToAnUnknownClientIsRefusedProgrammatically() {
+        assertThatThrownBy(() -> new EntraOutboundClients(java.util.Map.of(), java.util.List.of(
+                new EntraOutboundClients.Route("r", java.util.List.of(), "nope", null)), java.util.List.of()))
+                .hasMessageContaining("No outbound client named 'nope'");
+    }
 }

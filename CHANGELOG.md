@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Outbound routing: `entra.security.outbound.routes` maps URL patterns (`urls`) or hosts (`hosts` with
+  `*.domain` wildcards, optional `:port` and Ant-style `paths`) to an outbound client, with an optional
+  per-route `scope`. One `RestClient` or `WebClient` can then call external HTTPS APIs and in-cluster
+  `*.svc.cluster.local` services, each with the right token. The first match wins. Requests that match no
+  route, go to `outbound.skip-hosts` or already carry an `Authorization` header get no token. Plain http
+  matches only in-cluster and loopback hosts unless `allow-http` is set. Spring Boot's `RestClient.Builder`
+  and `WebClient.Builder` get the routes automatically (`outbound.customize-builders`, default `true`).
+  `EntraOutboundClients#routingInterceptor()` and `EntraWebClientSupport#routingFilter(...)` cover
+  hand-built clients. Routes are validated at startup.
+- `docs/service-to-service.md`: inbound app-role mapping and outbound routing, with sequence diagrams.
+
 - Optional remote token validation with `entra.security.validation.mode`: `jwks` (default, unchanged),
   `introspection` or `hybrid`. JWKS stays the recommended and fastest option for Entra ID tokens.
   - Microsoft Entra ID has no RFC 7662 introspection endpoint. `introspection.type=rfc7662` (the default)
