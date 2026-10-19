@@ -6,7 +6,7 @@
 
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-parent</artifactId>
-    <version>0.6.0</version>
+    <version>0.7.0</version>
     <packaging>pom</packaging>
 
     <name>Entra Security Parent</name>
