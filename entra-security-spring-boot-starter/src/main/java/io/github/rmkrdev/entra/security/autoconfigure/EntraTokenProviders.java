@@ -146,6 +146,9 @@ public class EntraTokenProviders {
         ClientCredentialsTokenProvider provider = new ClientCredentialsTokenProvider(tokenEndpoint(effective),
                 clientId, credential(effective), restClient, properties.getCache().getTokenRefreshSkew(), clock,
                 observations);
+        if (properties.getCae().isEnabled()) {
+            provider.withClientCapabilities();
+        }
         return properties.getCache().isTokenBackgroundRefresh() ? provider.withBackgroundRefresh(REFRESHER)
                 : provider;
     }
@@ -160,9 +163,10 @@ public class EntraTokenProviders {
     public EntraOnBehalfOfTokenProvider createOnBehalfOf(Credential credential) {
         Credential effective = effective(credential);
         String clientId = firstText(effective.getClientId(), properties.getClientId());
-        return new OnBehalfOfTokenProvider(tokenEndpoint(effective), clientId, credential(effective), restClient,
-                properties.getCache().getTokenRefreshSkew(), properties.getCache().getOnBehalfOfMaxEntries(), clock,
-                observations);
+        OnBehalfOfTokenProvider provider = new OnBehalfOfTokenProvider(tokenEndpoint(effective), clientId,
+                credential(effective), restClient, properties.getCache().getTokenRefreshSkew(),
+                properties.getCache().getOnBehalfOfMaxEntries(), clock, observations);
+        return properties.getCae().isEnabled() ? provider.withClientCapabilities() : provider;
     }
 
     private Credential effective(Credential credential) {

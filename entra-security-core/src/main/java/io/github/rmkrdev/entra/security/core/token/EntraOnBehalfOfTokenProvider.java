@@ -18,4 +18,14 @@ public interface EntraOnBehalfOfTokenProvider {
      * @throws EntraTokenAcquisitionException    when Entra refuses for another reason or cannot be reached
      */
     AccessToken getToken(Jwt userToken, String scope);
+
+    /**
+     * A fresh token that satisfies a claims challenge from the downstream API (Continuous Access Evaluation).
+     * The default ignores the claims.
+     *
+     * @param claims the decoded challenge claims, as JSON
+     */
+    default AccessToken getToken(Jwt userToken, String scope, String claims) {
+        return getToken(userToken, scope);
+    }
 }

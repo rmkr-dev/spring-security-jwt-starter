@@ -15,6 +15,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
+import io.github.rmkrdev.entra.security.core.cae.ContinuousAccessEvaluation;
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 
 /**
@@ -40,6 +41,7 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
     private static final Logger log = LoggerFactory.getLogger(ClientCredentialsTokenProvider.class);
     private static final Duration MIN_REMAINING = Duration.ofSeconds(30);
     private volatile Executor refresher;
+    private volatile boolean clientCapabilities;
 
     /**
      * @param tokenEndpoint the token endpoint, see {@link #tokenEndpoint(URI, String)}
@@ -88,6 +90,28 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
     public ClientCredentialsTokenProvider withBackgroundRefresh(Executor executor) {
         this.refresher = executor;
         return this;
+    }
+
+    /**
+     * Declares the {@code cp1} client capability on every token request, so Entra issues CAE-capable tokens.
+     *
+     * @return this provider
+     */
+    public ClientCredentialsTokenProvider withClientCapabilities() {
+        this.clientCapabilities = true;
+        return this;
+    }
+
+    @Override
+    public AccessToken getToken(String scope, String claims) {
+        if (claims == null || claims.isBlank()) {
+            return getToken(scope);
+        }
+        synchronized (locks.computeIfAbsent(scope, key -> new Object())) {
+            CachedToken fresh = fetch(scope, claims);
+            cache.put(scope, fresh);
+            return fresh.token();
+        }
     }
 
     @Override
@@ -145,9 +169,13 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
     }
 
     private CachedToken fetch(String scope) {
+        return fetch(scope, null);
+    }
+
+    private CachedToken fetch(String scope, String challenge) {
         long start = System.nanoTime();
         try {
-            CachedToken fresh = requestToken(scope);
+            CachedToken fresh = requestToken(scope, challenge);
             observations.tokenAcquisition(EntraSecurityObservations.GRANT_CLIENT_CREDENTIALS,
                     credential.credentialType(), true, elapsed(start));
             return fresh;
@@ -159,11 +187,15 @@ public final class ClientCredentialsTokenProvider implements EntraTokenProvider 
         }
     }
 
-    private CachedToken requestToken(String scope) {
+    private CachedToken requestToken(String scope, String challenge) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", "client_credentials");
         form.add("client_id", clientId);
         form.add("scope", scope);
+        String claims = ContinuousAccessEvaluation.requestClaims(clientCapabilities, challenge);
+        if (claims != null) {
+            form.add("claims", claims);
+        }
         credential.contribute(form, tokenEndpoint, clientId);
         TokenEndpointClient.IssuedToken issued = endpoint.request(form, endpoint::defaultError);
         return new CachedToken(issued.token(), TokenEndpointClient.refreshAt(issued, refreshSkew));

@@ -26,6 +26,7 @@ public final class EntraOnBehalfOfInterceptor implements ClientHttpRequestInterc
     private final EntraOnBehalfOfTokenProvider tokenProvider;
     private final String scope;
     private final Supplier<Jwt> userToken;
+    private final boolean cae;
 
     public EntraOnBehalfOfInterceptor(EntraOnBehalfOfTokenProvider tokenProvider, String scope) {
         this(tokenProvider, scope, () -> EntraUserTokens.current().orElse(null));
@@ -36,6 +37,16 @@ public final class EntraOnBehalfOfInterceptor implements ClientHttpRequestInterc
      */
     public EntraOnBehalfOfInterceptor(EntraOnBehalfOfTokenProvider tokenProvider, String scope,
             Supplier<Jwt> userToken) {
+        this(tokenProvider, scope, userToken, false);
+    }
+
+    /**
+     * @param cae when {@code true}, a {@code 401} with an {@code insufficient_claims} challenge is answered once with
+     *            a fresh token for the challenge claims
+     */
+    public EntraOnBehalfOfInterceptor(EntraOnBehalfOfTokenProvider tokenProvider, String scope,
+            Supplier<Jwt> userToken, boolean cae) {
+        this.cae = cae;
         this.tokenProvider = tokenProvider;
         this.scope = scope;
         this.userToken = userToken;
@@ -49,6 +60,11 @@ public final class EntraOnBehalfOfInterceptor implements ClientHttpRequestInterc
             throw EntraUserTokens.missing();
         }
         request.getHeaders().setBearerAuth(tokenProvider.getToken(jwt, scope).value());
-        return execution.execute(request, body);
+        ClientHttpResponse response = execution.execute(request, body);
+        if (!cae) {
+            return response;
+        }
+        return OutboundClaimsChallenge.retry(request, body, execution, response,
+                claims -> tokenProvider.getToken(jwt, scope, claims));
     }
 }

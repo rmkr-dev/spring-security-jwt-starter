@@ -161,6 +161,8 @@ public class EntraSecurityProperties implements Validator {
 
     private final SelfCheck selfCheck = new SelfCheck();
 
+    private final Cae cae = new Cae();
+
     // ---------------------------------------------------------------- derived values
 
     /**
@@ -570,6 +572,10 @@ public class EntraSecurityProperties implements Validator {
 
     public SelfCheck getSelfCheck() {
         return selfCheck;
+    }
+
+    public Cae getCae() {
+        return cae;
     }
 
     // ---------------------------------------------------------------- nested types
@@ -1878,6 +1884,26 @@ public class EntraSecurityProperties implements Validator {
 
         public void setReadTimeout(Duration readTimeout) {
             this.readTimeout = readTimeout;
+        }
+    }
+
+    /** Thin Continuous Access Evaluation support. */
+    public static class Cae {
+
+        /**
+         * Declare the {@code cp1} client capability on outbound token requests, answer a downstream
+         * {@code insufficient_claims} challenge once with a fresh token, and render {@code ClaimsChallengeException}
+         * as a claims challenge for callers whose token has {@code xms_cc=cp1}. The library never ends a session
+         * on its own.
+         */
+        private boolean enabled = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 
