@@ -159,6 +159,8 @@ public class EntraSecurityProperties implements Validator {
 
     private final Authorization authorization = new Authorization();
 
+    private final SelfCheck selfCheck = new SelfCheck();
+
     // ---------------------------------------------------------------- derived values
 
     /**
@@ -564,6 +566,10 @@ public class EntraSecurityProperties implements Validator {
 
     public Authorization getAuthorization() {
         return authorization;
+    }
+
+    public SelfCheck getSelfCheck() {
+        return selfCheck;
     }
 
     // ---------------------------------------------------------------- nested types
@@ -1872,6 +1878,25 @@ public class EntraSecurityProperties implements Validator {
 
         public void setReadTimeout(Duration readTimeout) {
             this.readTimeout = readTimeout;
+        }
+    }
+
+    /** The startup self-check. */
+    public static class SelfCheck {
+
+        /**
+         * {@code warn} logs each problem, {@code fail} stops startup, {@code off} skips the check. Checks GUID
+         * formats, that an audience is set, that the JWKS or introspection endpoint answers, and that outbound
+         * clients have a credential.
+         */
+        private EntraStartupSelfCheck.Mode mode = EntraStartupSelfCheck.Mode.WARN;
+
+        public EntraStartupSelfCheck.Mode getMode() {
+            return mode;
+        }
+
+        public void setMode(EntraStartupSelfCheck.Mode mode) {
+            this.mode = mode;
         }
     }
 

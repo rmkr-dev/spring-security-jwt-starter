@@ -155,6 +155,14 @@ public class EntraSecurityAutoConfiguration {
         return new AllowRolePatternsPostProcessor(compiled);
     }
 
+    /** The startup self-check ({@code entra.security.self-check.mode}). */
+    @Bean
+    @ConditionalOnMissingBean
+    public EntraStartupSelfCheck entraStartupSelfCheck(EntraSecurityProperties properties,
+            ObjectProvider<EntraEndpoints> endpoints, ObjectProvider<JWKSource<SecurityContext>> entraJwkSource) {
+        return new EntraStartupSelfCheck(properties, endpoints, entraJwkSource);
+    }
+
     /** The per-token principal and role-mapping cache shared by the servlet and reactive converters. */
     @Bean
     @ConditionalOnMissingBean
