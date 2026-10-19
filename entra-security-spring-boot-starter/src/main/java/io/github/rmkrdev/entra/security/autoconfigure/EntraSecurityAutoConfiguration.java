@@ -35,6 +35,7 @@ import io.github.rmkrdev.entra.security.core.graph.CachingGroupMembershipResolve
 import io.github.rmkrdev.entra.security.core.graph.GraphGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.GroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.introspect.TokenIntrospector;
+import io.github.rmkrdev.entra.security.core.jwt.AuthenticationCache;
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtAuthenticationConverter;
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtDecoders;
 import io.github.rmkrdev.entra.security.core.jwt.EntraTokenClassifier;
@@ -86,9 +87,30 @@ public class EntraSecurityAutoConfiguration {
     @ConditionalOnMissingBean(name = "entraJwkSource")
     public JWKSource<SecurityContext> entraJwkSource(EntraSecurityProperties properties, EntraEndpoints endpoints,
             ObjectProvider<EntraSecurityObservations> observations) {
-        return EntraJwtDecoders.jwkSource(endpoints.jwksUri(), properties.getCache().getJwksTtl(),
-                properties.getHttp().getReadTimeout(),
+        return EntraJwtDecoders.refreshingJwkSource(endpoints.jwksUri(), properties.getCache().getJwksTtl(),
+                properties.getHttp().getConnectTimeout(), properties.getHttp().getReadTimeout(),
+                properties.getCache().getJwksRefreshAhead(),
                 observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+    }
+
+    /**
+     * Loads the signing keys while the application starts, so no request waits for the JWKS.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "cache.jwks-prewarm",
+            havingValue = "true", matchIfMissing = true)
+    public EntraJwksWarmer entraJwksWarmer(ObjectProvider<JWKSource<SecurityContext>> entraJwkSource,
+            EntraSecurityProperties properties) {
+        return new EntraJwksWarmer(entraJwkSource, properties);
+    }
+
+    /** The per-token principal and role-mapping cache shared by the servlet and reactive converters. */
+    @Bean
+    @ConditionalOnMissingBean
+    public AuthenticationCache entraAuthenticationCache(EntraSecurityProperties properties) {
+        return new AuthenticationCache(properties.getCache().getAuthenticationTtl(),
+                properties.getCache().getAuthenticationMaxEntries(), Clock.systemUTC());
     }
 
     /**
@@ -168,11 +190,13 @@ public class EntraSecurityAutoConfiguration {
         @ConditionalOnMissingBean
         public EntraJwtAuthenticationConverter entraJwtAuthenticationConverter(EntraTokenClassifier classifier,
                 EntraAuthorityMapper mapper, ObjectProvider<GroupMembershipResolver> groupResolver,
-                EntraSecurityProperties properties, ObjectProvider<EntraSecurityObservations> observations) {
+                EntraSecurityProperties properties, ObjectProvider<EntraSecurityObservations> observations,
+                ObjectProvider<AuthenticationCache> cache) {
             return new EntraJwtAuthenticationConverter(classifier, mapper, groupResolver.getIfAvailable(),
                     properties.getService().isRequireKnownClient(),
                     new SafeClaimLogger(properties.getLogging().isLogClaims()),
-                    observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+                    observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP))
+                    .withCache(cache.getIfAvailable());
         }
 
         @Bean

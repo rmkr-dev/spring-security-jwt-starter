@@ -55,6 +55,29 @@ class EntraSecurityAutoConfigurationTest {
     }
 
     @Test
+    void performanceDefaultsCacheValidationAndPrewarmKeys() {
+        runner.withPropertyValues(TENANT, CLIENT, "entra.security.authority.jwks-uri=http://127.0.0.1:9/keys",
+                "entra.security.authority.allow-http=true").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(JwtDecoder.class)).isInstanceOf(
+                    io.github.rmkrdev.entra.security.core.jwt.CachingJwtDecoder.class);
+            assertThat(context.getBean("entraJwkSource")).isInstanceOf(
+                    io.github.rmkrdev.entra.security.core.jwt.EntraJwkSource.class);
+            assertThat(context.getBean(EntraJwksWarmer.class).getLoadedKeys()).isEqualTo(-1);
+            assertThat(context).hasSingleBean(io.github.rmkrdev.entra.security.core.jwt.AuthenticationCache.class);
+            EntraSecurityProperties.Http http = context.getBean(EntraSecurityProperties.class).getHttp();
+            assertThat(http.getConnectTimeout()).hasSeconds(2);
+            assertThat(http.getReadTimeout()).hasSeconds(3);
+        });
+        runner.withPropertyValues(TENANT, CLIENT, "entra.security.cache.validated-token-ttl=0",
+                "entra.security.cache.jwks-prewarm=false").run(context -> {
+            assertThat(context.getBean(JwtDecoder.class)).isNotInstanceOf(
+                    io.github.rmkrdev.entra.security.core.jwt.CachingJwtDecoder.class);
+            assertThat(context).doesNotHaveBean(EntraJwksWarmer.class);
+        });
+    }
+
+    @Test
     void missingTenantAndClientFailFastWithClearMessage() {
         runner.run(context -> {
             assertThat(context).hasFailed();

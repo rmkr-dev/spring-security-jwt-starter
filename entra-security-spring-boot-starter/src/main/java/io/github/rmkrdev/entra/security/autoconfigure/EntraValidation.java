@@ -1,7 +1,6 @@
 package io.github.rmkrdev.entra.security.autoconfigure;
 
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +28,7 @@ import io.github.rmkrdev.entra.security.core.introspect.IntrospectionJwtDecoder;
 import io.github.rmkrdev.entra.security.core.introspect.Rfc7662TokenIntrospector;
 import io.github.rmkrdev.entra.security.core.introspect.TokenIntrospector;
 import io.github.rmkrdev.entra.security.core.introspect.UserInfoTokenIntrospector;
+import io.github.rmkrdev.entra.security.core.jwt.CachingJwtDecoder;
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtDecoders;
 import io.github.rmkrdev.entra.security.core.observe.EntraSecurityObservations;
 import io.github.rmkrdev.entra.security.core.token.EntraTokenProvider;
@@ -51,7 +51,7 @@ public final class EntraValidation {
             JWKSource<SecurityContext> jwkSource, TokenIntrospector introspector) {
         ValidationMode mode = properties.getValidation().getMode();
         if (mode == ValidationMode.JWKS) {
-            return local(properties, endpoints, jwkSource);
+            return cached(properties, local(properties, endpoints, jwkSource));
         }
         if (introspector == null) {
             throw new IllegalStateException("entra.security.validation.mode=" + mode.name().toLowerCase()
@@ -66,6 +66,16 @@ public final class EntraValidation {
                 == EntraSecurityProperties.HybridStrategy.FALLBACK ? HybridJwtDecoder.Strategy.FALLBACK
                         : HybridJwtDecoder.Strategy.BOTH;
         return new HybridJwtDecoder(local(properties, endpoints, jwkSource), introspector, remote, strategy);
+    }
+
+    /** Remembers validated tokens for {@code cache.validated-token-ttl}; zero returns the decoder as is. */
+    static JwtDecoder cached(EntraSecurityProperties properties, JwtDecoder decoder) {
+        Duration ttl = properties.getCache().getValidatedTokenTtl();
+        if (ttl.isZero() || ttl.isNegative()) {
+            return decoder;
+        }
+        return new CachingJwtDecoder(decoder, ttl, properties.getCache().getValidatedTokenMaxEntries(),
+                properties.getClockSkew(), Clock.systemUTC());
     }
 
     private static JwtDecoder local(EntraSecurityProperties properties, EntraEndpoints endpoints,
@@ -170,11 +180,8 @@ public final class EntraValidation {
     }
 
     static RestClient restClient(Duration connectTimeout, Duration readTimeout) {
-        HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(connectTimeout)
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
+                EntraTokenProviders.pooledHttpClient(connectTimeout));
         factory.setReadTimeout(readTimeout);
         return RestClient.builder().requestFactory(factory).build();
     }

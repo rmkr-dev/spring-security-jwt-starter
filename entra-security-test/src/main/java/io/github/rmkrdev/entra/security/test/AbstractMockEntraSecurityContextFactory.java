@@ -168,7 +168,7 @@ abstract class AbstractMockEntraSecurityContextFactory<A extends Annotation> imp
 
     private static Jwt jwt(Map<String, Object> claims) {
         Instant now = Instant.now();
-        return Jwt.withTokenValue("mock-entra-token")
+        return Jwt.withTokenValue("mock-entra-token-" + java.util.UUID.randomUUID())
                 .header("alg", "RS256")
                 .header("typ", "JWT")
                 .claims(c -> c.putAll(claims))

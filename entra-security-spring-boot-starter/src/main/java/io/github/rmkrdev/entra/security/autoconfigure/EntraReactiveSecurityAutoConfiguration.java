@@ -1,6 +1,5 @@
 package io.github.rmkrdev.entra.security.autoconfigure;
 
-import java.net.http.HttpClient;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -36,6 +35,7 @@ import io.github.rmkrdev.entra.security.core.graph.GroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.ReactiveGraphGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.ReactiveGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.introspect.TokenIntrospector;
+import io.github.rmkrdev.entra.security.core.jwt.AuthenticationCache;
 import io.github.rmkrdev.entra.security.core.jwt.EntraReactiveJwtDecoder;
 import io.github.rmkrdev.entra.security.core.jwt.EntraTokenClassifier;
 import io.github.rmkrdev.entra.security.core.jwt.ReactiveEntraJwtAuthenticationConverter;
@@ -103,7 +103,7 @@ public class EntraReactiveSecurityAutoConfiguration {
             EntraTokenClassifier classifier, EntraAuthorityMapper mapper,
             ObjectProvider<ReactiveGroupMembershipResolver> reactiveGroupResolver,
             ObjectProvider<GroupMembershipResolver> groupResolver, EntraSecurityProperties properties,
-            ObjectProvider<EntraSecurityObservations> observations) {
+            ObjectProvider<EntraSecurityObservations> observations, ObjectProvider<AuthenticationCache> cache) {
         ReactiveGroupMembershipResolver resolver = reactiveGroupResolver.getIfAvailable(() -> {
             GroupMembershipResolver blocking = groupResolver.getIfAvailable();
             return blocking != null ? ReactiveGroupMembershipResolver.fromBlocking(blocking) : null;
@@ -111,7 +111,8 @@ public class EntraReactiveSecurityAutoConfiguration {
         return new ReactiveEntraJwtAuthenticationConverter(classifier, mapper, resolver,
                 properties.getService().isRequireKnownClient(),
                 new SafeClaimLogger(properties.getLogging().isLogClaims()),
-                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
+                observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP))
+                .withCache(cache.getIfAvailable());
     }
 
     @Bean
@@ -145,11 +146,8 @@ public class EntraReactiveSecurityAutoConfiguration {
 
     /** WebClient for Graph that uses the {@code entra.security.http} timeouts. */
     static WebClient defaultWebClient(EntraSecurityProperties properties) {
-        HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(properties.getHttp().getConnectTimeout())
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
-        JdkClientHttpConnector connector = new JdkClientHttpConnector(httpClient);
+        JdkClientHttpConnector connector = new JdkClientHttpConnector(
+                EntraTokenProviders.pooledHttpClient(properties.getHttp().getConnectTimeout()));
         connector.setReadTimeout(properties.getHttp().getReadTimeout());
         return WebClient.builder().clientConnector(connector).build();
     }

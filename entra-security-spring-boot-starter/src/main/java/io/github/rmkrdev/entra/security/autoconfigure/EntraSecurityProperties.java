@@ -1708,6 +1708,100 @@ public class EntraSecurityProperties implements Validator {
         @Min(1)
         private int onBehalfOfMaxEntries = 10_000;
 
+        /** Load the JWKS while the application starts, so the first request never waits for it. */
+        private boolean jwksPrewarm = true;
+
+        /**
+         * Refresh the JWKS on a background thread during this window before {@code jwks-ttl} ends; zero refreshes
+         * on the request that finds the keys expired. Capped at half of {@code jwks-ttl}.
+         */
+        @NotNull
+        private Duration jwksRefreshAhead = Duration.ofMinutes(5);
+
+        /**
+         * How long a successfully validated token is remembered, so presenting it again skips the signature and
+         * claim checks. Never past the token's {@code exp}. Zero disables the cache. Used in jwks mode only.
+         */
+        @NotNull
+        private Duration validatedTokenTtl = Duration.ofMinutes(5);
+
+        /** Maximum number of remembered validated tokens. */
+        @Min(1)
+        private int validatedTokenMaxEntries = 10_000;
+
+        /**
+         * How long the principal and role mapping of a token are remembered (including the Graph overage result).
+         * Never past the token's {@code exp}. Zero disables the cache.
+         */
+        @NotNull
+        private Duration authenticationTtl = Duration.ofMinutes(5);
+
+        /** Maximum number of remembered role mappings. */
+        @Min(1)
+        private int authenticationMaxEntries = 10_000;
+
+        /**
+         * Renew outbound and Graph app tokens on a background thread once they enter the
+         * {@code token-refresh-skew} window, instead of on the request that finds them stale.
+         */
+        private boolean tokenBackgroundRefresh = true;
+
+        public boolean isJwksPrewarm() {
+            return jwksPrewarm;
+        }
+
+        public void setJwksPrewarm(boolean jwksPrewarm) {
+            this.jwksPrewarm = jwksPrewarm;
+        }
+
+        public Duration getJwksRefreshAhead() {
+            return jwksRefreshAhead;
+        }
+
+        public void setJwksRefreshAhead(Duration jwksRefreshAhead) {
+            this.jwksRefreshAhead = jwksRefreshAhead;
+        }
+
+        public Duration getValidatedTokenTtl() {
+            return validatedTokenTtl;
+        }
+
+        public void setValidatedTokenTtl(Duration validatedTokenTtl) {
+            this.validatedTokenTtl = validatedTokenTtl;
+        }
+
+        public int getValidatedTokenMaxEntries() {
+            return validatedTokenMaxEntries;
+        }
+
+        public void setValidatedTokenMaxEntries(int validatedTokenMaxEntries) {
+            this.validatedTokenMaxEntries = validatedTokenMaxEntries;
+        }
+
+        public Duration getAuthenticationTtl() {
+            return authenticationTtl;
+        }
+
+        public void setAuthenticationTtl(Duration authenticationTtl) {
+            this.authenticationTtl = authenticationTtl;
+        }
+
+        public int getAuthenticationMaxEntries() {
+            return authenticationMaxEntries;
+        }
+
+        public void setAuthenticationMaxEntries(int authenticationMaxEntries) {
+            this.authenticationMaxEntries = authenticationMaxEntries;
+        }
+
+        public boolean isTokenBackgroundRefresh() {
+            return tokenBackgroundRefresh;
+        }
+
+        public void setTokenBackgroundRefresh(boolean tokenBackgroundRefresh) {
+            this.tokenBackgroundRefresh = tokenBackgroundRefresh;
+        }
+
         public int getOnBehalfOfMaxEntries() {
             return onBehalfOfMaxEntries;
         }
@@ -1738,11 +1832,11 @@ public class EntraSecurityProperties implements Validator {
 
         /** Connect timeout. */
         @NotNull
-        private Duration connectTimeout = Duration.ofSeconds(5);
+        private Duration connectTimeout = Duration.ofSeconds(2);
 
         /** Read timeout. */
         @NotNull
-        private Duration readTimeout = Duration.ofSeconds(10);
+        private Duration readTimeout = Duration.ofSeconds(3);
 
         public Duration getConnectTimeout() {
             return connectTimeout;
