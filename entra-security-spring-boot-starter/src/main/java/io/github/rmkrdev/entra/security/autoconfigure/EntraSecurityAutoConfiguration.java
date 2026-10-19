@@ -31,6 +31,8 @@ import com.nimbusds.jose.proc.SecurityContext;
 import io.github.rmkrdev.entra.security.autoconfigure.keyvault.KeyVaultCredentialFactory;
 import io.github.rmkrdev.entra.security.autoconfigure.metrics.ObservingJwtDecoder;
 import io.github.rmkrdev.entra.security.core.authority.EntraAuthorityMapper;
+import io.github.rmkrdev.entra.security.core.decision.AuthDecisionListener;
+import io.github.rmkrdev.entra.security.core.decision.AuthDecisionRecorder;
 import io.github.rmkrdev.entra.security.core.graph.CachingGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.GraphGroupMembershipResolver;
 import io.github.rmkrdev.entra.security.core.graph.GroupMembershipResolver;
@@ -45,6 +47,7 @@ import io.github.rmkrdev.entra.security.core.token.EntraTokenProvider;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsAccessDeniedHandler;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsAuthenticationEntryPoint;
 import io.github.rmkrdev.entra.security.core.web.ProblemDetailsWriter;
+import io.github.rmkrdev.entra.security.core.web.ServletAuthTiming;
 
 /**
  * Auto-configuration that turns a Spring Boot servlet application into an Entra ID resource server.
@@ -103,6 +106,22 @@ public class EntraSecurityAutoConfiguration {
     public EntraJwksWarmer entraJwksWarmer(ObjectProvider<JWKSource<SecurityContext>> entraJwkSource,
             EntraSecurityProperties properties) {
         return new EntraJwksWarmer(entraJwkSource, properties);
+    }
+
+    /**
+     * Records each request's authentication decision: the {@code entra.security.auth.duration} timer, any
+     * {@link AuthDecisionListener} beans and the {@code Server-Timing} header.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AuthDecisionRecorder entraAuthDecisionRecorder(EntraSecurityProperties properties,
+            ObjectProvider<EntraSecurityObservations> observations, ObjectProvider<AuthDecisionListener> listeners) {
+        EntraSecurityObservations metrics = observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP);
+        List<AuthDecisionListener> all = new java.util.ArrayList<>();
+        all.add(metrics::authDecision);
+        listeners.orderedStream().forEach(all::add);
+        return new AuthDecisionRecorder(properties.getValidation().getMode().name(), all,
+                properties.getObservability().isServerTiming(), Clock.systemUTC());
     }
 
     /** The per-token principal and role-mapping cache shared by the servlet and reactive converters. */
@@ -223,9 +242,12 @@ public class EntraSecurityAutoConfiguration {
         @ConditionalOnMissingBean
         public EntraHttpSecurity entraHttpSecurity(JwtDecoder jwtDecoder,
                 EntraJwtAuthenticationConverter converter, ProblemDetailsAuthenticationEntryPoint entryPoint,
-                ProblemDetailsAccessDeniedHandler accessDeniedHandler, EntraSecurityProperties properties) {
+                ProblemDetailsAccessDeniedHandler accessDeniedHandler, EntraSecurityProperties properties,
+                ObjectProvider<AuthDecisionRecorder> recorder) {
             List<String> publicPaths = properties.getPublicPaths();
-            return new EntraHttpSecurity(jwtDecoder, converter, entryPoint, accessDeniedHandler, publicPaths);
+            AuthDecisionRecorder decisions = recorder.getIfAvailable();
+            return new EntraHttpSecurity(jwtDecoder, converter, entryPoint, accessDeniedHandler, publicPaths,
+                    decisions == null ? null : new ServletAuthTiming(decisions));
         }
     }
 

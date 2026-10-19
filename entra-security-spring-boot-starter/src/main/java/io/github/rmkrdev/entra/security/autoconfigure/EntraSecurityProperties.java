@@ -151,6 +151,9 @@ public class EntraSecurityProperties implements Validator {
 
     private final Logging logging = new Logging();
 
+    @Valid
+    private final Observability observability = new Observability();
+
     // ---------------------------------------------------------------- derived values
 
     /**
@@ -544,6 +547,10 @@ public class EntraSecurityProperties implements Validator {
 
     public Logging getLogging() {
         return logging;
+    }
+
+    public Observability getObservability() {
+        return observability;
     }
 
     // ---------------------------------------------------------------- nested types
@@ -1852,6 +1859,25 @@ public class EntraSecurityProperties implements Validator {
 
         public void setReadTimeout(Duration readTimeout) {
             this.readTimeout = readTimeout;
+        }
+    }
+
+    /** Auth timing and decision reporting. */
+    public static class Observability {
+
+        /**
+         * Add {@code Server-Timing: auth;dur=<ms>} to every authenticated response. The authentication time is
+         * always recorded as the {@code entra.security.auth.duration} timer; this switch only controls the
+         * header.
+         */
+        private boolean serverTiming = true;
+
+        public boolean isServerTiming() {
+            return serverTiming;
+        }
+
+        public void setServerTiming(boolean serverTiming) {
+            this.serverTiming = serverTiming;
         }
     }
 
