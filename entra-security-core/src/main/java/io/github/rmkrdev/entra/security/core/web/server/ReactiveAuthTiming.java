@@ -2,6 +2,7 @@ package io.github.rmkrdev.entra.security.core.web.server;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -17,10 +18,14 @@ import io.github.rmkrdev.entra.security.core.decision.AuthDecision;
 import io.github.rmkrdev.entra.security.core.decision.AuthDecisionRecorder;
 
 import reactor.core.publisher.Mono;
+import reactor.util.context.Context;
 
 /**
  * WebFlux counterpart of {@code ServletAuthTiming}: times the work between the authentication and the end of
  * the authorization web filters, or up to the 401/403 handler.
+ * <p>
+ * Downstream code can override the success reason by setting the {@code AtomicReference<String>} found in the
+ * Reactor context under {@link AuthDecision#REASON_ATTRIBUTE}.
  */
 public final class ReactiveAuthTiming {
 
@@ -56,18 +61,23 @@ public final class ReactiveAuthTiming {
                 exchange.getResponse().getHeaders().set(AuthDecisionRecorder.SERVER_TIMING,
                         AuthDecisionRecorder.serverTimingValue(duration));
             }
-            Object reason = exchange.getAttribute(AuthDecision.REASON_ATTRIBUTE);
-            String successReason = reason != null ? reason.toString() : "authorized";
+            AtomicReference<String> reason = new AtomicReference<>();
             return chain.filter(exchange)
-                    .doOnSuccess(done -> complete(exchange, false, duration, AuthDecision.SUCCESS, successReason,
-                            authentication))
+                    .doOnSuccess(done -> complete(exchange, false, duration, AuthDecision.SUCCESS,
+                            successReason(exchange, reason), authentication))
                     .doOnError(error -> {
                         if (!AuthDecisionRecorder.isAccessDenied(error)) {
-                            complete(exchange, false, duration, AuthDecision.SUCCESS, successReason,
-                                    authentication);
+                            complete(exchange, false, duration, AuthDecision.SUCCESS,
+                                    successReason(exchange, reason), authentication);
                         }
-                    });
+                    })
+                    .contextWrite(Context.of(AuthDecision.REASON_ATTRIBUTE, reason));
         });
+    }
+
+    private static String successReason(ServerWebExchange exchange, AtomicReference<String> holder) {
+        Object reason = holder.get() != null ? holder.get() : exchange.getAttribute(AuthDecision.REASON_ATTRIBUTE);
+        return reason != null ? reason.toString() : "authorized";
     }
 
     /** Records an unauthenticated decision before {@code delegate} writes the 401. */
