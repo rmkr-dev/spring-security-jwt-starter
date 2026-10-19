@@ -17,6 +17,11 @@ import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.context.annotation.Role;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -30,6 +35,7 @@ import com.nimbusds.jose.proc.SecurityContext;
 
 import io.github.rmkrdev.entra.security.autoconfigure.keyvault.KeyVaultCredentialFactory;
 import io.github.rmkrdev.entra.security.autoconfigure.metrics.ObservingJwtDecoder;
+import io.github.rmkrdev.entra.security.core.authority.AllowRolePatterns;
 import io.github.rmkrdev.entra.security.core.authority.EntraAuthorityMapper;
 import io.github.rmkrdev.entra.security.core.decision.AuditLogger;
 import io.github.rmkrdev.entra.security.core.decision.AuthDecisionListener;
@@ -126,6 +132,27 @@ public class EntraSecurityAutoConfiguration {
         listeners.orderedStream().forEach(all::add);
         return new AuthDecisionRecorder(properties.getValidation().getMode().name(), all,
                 properties.getObservability().isServerTiming(), Clock.systemUTC());
+    }
+
+    /**
+     * Applies {@code entra.security.authorization.allow-role-patterns} to method security. Does nothing while
+     * the list is empty.
+     */
+    @Bean
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    static AllowRolePatternsPostProcessor entraAllowRolePatternsPostProcessor(Environment environment) {
+        Binder binder = Binder.get(environment);
+        List<String> patterns = binder.bind(EntraSecurityProperties.PREFIX + ".authorization.allow-role-patterns",
+                Bindable.listOf(String.class)).orElse(List.of());
+        boolean caseSensitive = binder.bind(EntraSecurityProperties.PREFIX
+                + ".authorization.allow-role-patterns-case-sensitive", Boolean.class).orElse(false);
+        AllowRolePatterns compiled = new AllowRolePatterns(patterns, caseSensitive);
+        if (!compiled.isEmpty()) {
+            LoggerFactory.getLogger(EntraSecurityAutoConfiguration.class).warn("entra.security.authorization."
+                    + "allow-role-patterns={} is active: callers with a matching role pass every method-security "
+                    + "check. Prefer explicit @Secured rules", patterns);
+        }
+        return new AllowRolePatternsPostProcessor(compiled);
     }
 
     /** The per-token principal and role-mapping cache shared by the servlet and reactive converters. */

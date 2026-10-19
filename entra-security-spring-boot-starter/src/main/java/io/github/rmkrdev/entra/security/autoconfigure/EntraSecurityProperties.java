@@ -157,6 +157,8 @@ public class EntraSecurityProperties implements Validator {
 
     private final Audit audit = new Audit();
 
+    private final Authorization authorization = new Authorization();
+
     // ---------------------------------------------------------------- derived values
 
     /**
@@ -558,6 +560,10 @@ public class EntraSecurityProperties implements Validator {
 
     public Audit getAudit() {
         return audit;
+    }
+
+    public Authorization getAuthorization() {
+        return authorization;
     }
 
     // ---------------------------------------------------------------- nested types
@@ -1866,6 +1872,37 @@ public class EntraSecurityProperties implements Validator {
 
         public void setReadTimeout(Duration readTimeout) {
             this.readTimeout = readTimeout;
+        }
+    }
+
+    /** Authorization shortcuts. */
+    public static class Authorization {
+
+        /**
+         * Roles that open every authenticated API. Globs ({@code *hardware*}) or Java regular expressions prefixed
+         * with {@code regex:}, matched against the whole mapped role name with or without {@code ROLE_}. A caller
+         * with any matching role passes {@code @Secured}, {@code @PreAuthorize}, {@code @PostAuthorize} and
+         * {@code @RolesAllowed}. Empty (off) by default; prefer explicit {@code @Secured} rules.
+         */
+        private List<String> allowRolePatterns = new ArrayList<>();
+
+        /** Match {@code allow-role-patterns} case-sensitively. */
+        private boolean allowRolePatternsCaseSensitive = false;
+
+        public List<String> getAllowRolePatterns() {
+            return allowRolePatterns;
+        }
+
+        public void setAllowRolePatterns(List<String> allowRolePatterns) {
+            this.allowRolePatterns = allowRolePatterns;
+        }
+
+        public boolean isAllowRolePatternsCaseSensitive() {
+            return allowRolePatternsCaseSensitive;
+        }
+
+        public void setAllowRolePatternsCaseSensitive(boolean allowRolePatternsCaseSensitive) {
+            this.allowRolePatternsCaseSensitive = allowRolePatternsCaseSensitive;
         }
     }
 

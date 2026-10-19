@@ -32,7 +32,8 @@ public record AuthDecision(Instant timestamp, String correlationId, String outco
 
     /**
      * Request (or exchange) attribute holding an override for the success reason, for example
-     * {@code role_pattern} when access was granted by {@code allow-role-patterns}.
+     * {@code role_pattern} when access was granted by {@code allow-role-patterns}. In WebFlux the same key holds an
+     * {@code AtomicReference<String>} in the Reactor context.
      */
     public static final String REASON_ATTRIBUTE = AuthDecision.class.getName() + ".reason";
 
