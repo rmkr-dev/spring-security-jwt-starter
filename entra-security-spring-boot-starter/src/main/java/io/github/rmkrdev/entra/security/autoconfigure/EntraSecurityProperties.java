@@ -155,6 +155,9 @@ public class EntraSecurityProperties implements Validator {
     @Valid
     private final Observability observability = new Observability();
 
+    /** Metrics backend settings. */
+    private final Monitoring monitoring = new Monitoring();
+
     private final Audit audit = new Audit();
 
     private final Authorization authorization = new Authorization();
@@ -560,6 +563,10 @@ public class EntraSecurityProperties implements Validator {
 
     public Observability getObservability() {
         return observability;
+    }
+
+    public Monitoring getMonitoring() {
+        return monitoring;
     }
 
     public Audit getAudit() {
@@ -1999,6 +2006,68 @@ public class EntraSecurityProperties implements Validator {
 
         public void setServerTiming(boolean serverTiming) {
             this.serverTiming = serverTiming;
+        }
+    }
+
+    /** Metrics backend settings. Datadog is the documented default; Prometheus is opt-in. */
+    public static class Monitoring {
+
+        /** Extra tags added to every {@code entra.security.*} meter, e.g. {@code service=orders-api}. */
+        private java.util.Map<String, String> tags = new java.util.LinkedHashMap<>();
+
+        /** Datadog settings, applied only when micrometer-registry-datadog is on the classpath. */
+        private final Datadog datadog = new Datadog();
+
+        /** Prometheus settings, applied only when micrometer-registry-prometheus is on the classpath. */
+        private final Prometheus prometheus = new Prometheus();
+
+        public java.util.Map<String, String> getTags() {
+            return tags;
+        }
+
+        public void setTags(java.util.Map<String, String> tags) {
+            this.tags = tags;
+        }
+
+        public Datadog getDatadog() {
+            return datadog;
+        }
+
+        public Prometheus getPrometheus() {
+            return prometheus;
+        }
+
+        /** Datadog registry tuning. */
+        public static class Datadog {
+
+            /** Publish client-side p50/p95/p99 for entra.security timers (Datadog cannot aggregate histograms). */
+            private boolean percentiles = true;
+
+            public boolean isPercentiles() {
+                return percentiles;
+            }
+
+            public void setPercentiles(boolean percentiles) {
+                this.percentiles = percentiles;
+            }
+        }
+
+        /** Prometheus registry tuning. */
+        public static class Prometheus {
+
+            /**
+             * Export entra.security meters to Prometheus. Off by default: when false, the meters are
+             * filtered out of a Prometheus registry even if one is present.
+             */
+            private boolean enabled = false;
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
         }
     }
 

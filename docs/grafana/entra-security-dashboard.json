@@ -1,0 +1,25 @@
+{
+  "title": "Entra security",
+  "uid": "entra-security",
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [
+    { "name": "datasource", "type": "datasource", "query": "prometheus" },
+    { "name": "application", "type": "query", "datasource": "${datasource}",
+      "query": "label_values(entra_security_auth_duration_seconds_count, application)", "includeAll": true }
+  ] },
+  "panels": [
+    { "type": "timeseries", "title": "Auth decisions / s by outcome", "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [ { "expr": "sum by (outcome) (rate(entra_security_auth_duration_seconds_count{application=~\"$application\"}[5m]))" } ] },
+    { "type": "timeseries", "title": "Auth latency p50 / p95 / p99", "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(entra_security_auth_duration_seconds_bucket{application=~\"$application\"}[5m])))" },
+        { "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(entra_security_auth_duration_seconds_bucket{application=~\"$application\"}[5m])))" },
+        { "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(entra_security_auth_duration_seconds_bucket{application=~\"$application\"}[5m])))" } ] },
+    { "type": "timeseries", "title": "JWKS refreshes by result", "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [ { "expr": "sum by (result) (increase(entra_security_jwks_refreshes_seconds_count{application=~\"$application\"}[15m]))" } ] },
+    { "type": "timeseries", "title": "Outbound token acquisitions by result", "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [ { "expr": "sum by (result) (rate(entra_security_token_acquisitions_seconds_count{application=~\"$application\"}[5m]))" } ] }
+  ]
+}

@@ -4,3 +4,4 @@ io.github.rmkrdev.entra.security.autoconfigure.EntraOutboundAutoConfiguration
 io.github.rmkrdev.entra.security.autoconfigure.health.EntraHealthAutoConfiguration
 io.github.rmkrdev.entra.security.autoconfigure.metrics.EntraMetricsAutoConfiguration
 io.github.rmkrdev.entra.security.autoconfigure.keyvault.EntraKeyVaultAutoConfiguration
+io.github.rmkrdev.entra.security.autoconfigure.metrics.EntraMonitoringAutoConfiguration
