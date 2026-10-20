@@ -10,7 +10,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Role;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.security.authorization.AuthorizationDecision;
-import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.authorization.ReactiveAuthorizationManager;
 import org.springframework.security.authorization.method.AuthorizationInterceptorsOrder;
 import org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor;
@@ -49,22 +48,19 @@ public class EntraReactiveSecuredConfiguration {
     /**
      * Runs Spring Security's {@link SecuredAuthorizationManager} against the reactive authentication. No
      * authentication means no decision, which the interceptor treats as denied.
+     * <p>
+     * Only {@code check} is implemented: it is the one abstract method on Spring Security 6.3 to 6.5, and from 6.4
+     * the default {@code authorize} delegates to it. {@code SecuredAuthorizationManager} itself only implements
+     * {@code check}, so the result is the same on every supported version.
      */
     static final class SecuredReactiveAuthorizationManager implements ReactiveAuthorizationManager<MethodInvocation> {
 
         private final SecuredAuthorizationManager secured = new SecuredAuthorizationManager();
 
         @Override
-        public Mono<AuthorizationResult> authorize(Mono<Authentication> authentication, MethodInvocation invocation) {
-            return authentication.flatMap(auth -> Mono.justOrEmpty(secured.authorize(() -> auth, invocation)));
-        }
-
-        @Override
         @Deprecated
         public Mono<AuthorizationDecision> check(Mono<Authentication> authentication, MethodInvocation invocation) {
-            return authorize(authentication, invocation)
-                    .map(result -> result instanceof AuthorizationDecision decision ? decision
-                            : new AuthorizationDecision(result.isGranted()));
+            return authentication.flatMap(auth -> Mono.justOrEmpty(secured.check(() -> auth, invocation)));
         }
     }
 }
