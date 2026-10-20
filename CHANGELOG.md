@@ -15,6 +15,17 @@ All notable changes to this project are documented here. The format follows
 - CI job `Release build check` runs `mvn -Prelease package` on every pull request, so Javadoc or packaging
   problems surface before a tag.
 - `docs/releasing.md`: installing from GitHub Packages and cutting a release, with a diagram.
+- Spring Boot compatibility matrix. A new CI job, `Spring Boot compatibility`, builds and tests the whole project
+  on Java 17 against Spring Boot 3.3.13 and 3.4.13, next to the existing 3.5.16 build on Java 17 and 21.
+  `docs/compatibility.md` lists the supported Java, Spring Boot and web stack versions; the README has a short
+  table. Spring Boot 3.2 and older are not supported.
+
+### Fixed
+
+- The starter now compiles and runs on Spring Boot 3.3 (Spring Security 6.3, Spring Framework 6.1). The reactive
+  `@Secured` support implements `ReactiveAuthorizationManager#check`, which every supported Spring Security
+  version has, and the reactive Graph client no longer sets a connector read timeout; the per-page Graph timeout
+  already covers it. Behaviour on 3.4 and 3.5 is unchanged.
 
 ## [0.7.0] - 2026-10-19
 

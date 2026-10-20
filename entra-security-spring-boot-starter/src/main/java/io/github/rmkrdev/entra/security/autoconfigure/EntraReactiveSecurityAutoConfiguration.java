@@ -148,11 +148,15 @@ public class EntraReactiveSecurityAutoConfiguration {
                 properties.getPublicPaths(), decisions == null ? null : new ReactiveAuthTiming(decisions));
     }
 
-    /** WebClient for Graph that uses the {@code entra.security.http} timeouts. */
+    /**
+     * WebClient for Graph on the shared JDK client, so it gets the {@code entra.security.http} connect timeout. The
+     * read timeout is applied per page by {@link ReactiveGraphGroupMembershipResolver} (it covers headers and
+     * body), so the connector does not need one. That also keeps this working on Spring Framework 6.1, whose
+     * {@code JdkClientHttpConnector} has no read timeout setter.
+     */
     static WebClient defaultWebClient(EntraSecurityProperties properties) {
         JdkClientHttpConnector connector = new JdkClientHttpConnector(
                 EntraTokenProviders.pooledHttpClient(properties.getHttp().getConnectTimeout()));
-        connector.setReadTimeout(properties.getHttp().getReadTimeout());
         return WebClient.builder().clientConnector(connector).build();
     }
 

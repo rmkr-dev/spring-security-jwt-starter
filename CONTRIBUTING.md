@@ -59,6 +59,9 @@ one.
 Dependabot opens weekly pull requests for Maven dependencies and GitHub Actions. Spring Boot major
 upgrades are excluded on purpose; they are planned as separate work.
 
+CI also builds against older Spring Boot 3.x lines; avoid Spring APIs newer than Spring Boot 3.3 or guard
+them. See [docs/compatibility.md](docs/compatibility.md).
+
 ## License
 
 By contributing you agree that your contributions are licensed under the [MIT License](LICENSE).
