@@ -48,13 +48,22 @@ List<Order> orders(EntraPrincipal caller) { ... }
 Every path except health and info now needs a valid Entra token. Missing tokens get a `401` and missing roles a
 `403`, both as `application/problem+json`. The full walkthrough is in [docs/quickstart.md](docs/quickstart.md).
 
+## Supported versions
+
+| Java | Spring Boot | Web stack |
+| --- | --- | --- |
+| 17, 21 | 3.3.x, 3.4.x, 3.5.x | Spring MVC and WebFlux |
+
+Each line is built and tested in CI. Details and the exact patches are in
+[docs/compatibility.md](docs/compatibility.md).
+
 ## Documentation
 
 - [Architecture](docs/architecture.md) · [Quickstart](docs/quickstart.md) · [User flow](docs/user-flow.md)
 - [Service-to-service](docs/service-to-service.md) · [On-behalf-of](docs/on-behalf-of.md) · [Validation modes](docs/validation-modes.md)
 - [Configuration reference](docs/configuration.md) · [Onboarding in Entra](docs/onboarding.md) · [Deployment on AKS](docs/deployment.md)
 - [Observability and auth timing](docs/observability.md) · [Role patterns](docs/role-patterns.md) · [Performance](docs/performance.md)
-- [CAE](docs/cae.md) · [Testing](docs/testing.md) · [Troubleshooting](docs/troubleshooting.md) · [Releases](docs/releasing.md)
+- [CAE](docs/cae.md) · [Testing](docs/testing.md) · [Troubleshooting](docs/troubleshooting.md) · [Releases](docs/releasing.md) · [Compatibility](docs/compatibility.md)
 
 ## Building
 
