@@ -2,8 +2,8 @@ package io.github.rmkrdev.entra.security.autoconfigure.health;
 
 import java.util.List;
 
-import org.springframework.boot.actuate.health.AbstractHealthIndicator;
-import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.health.contributor.AbstractHealthIndicator;
+import org.springframework.boot.health.contributor.Health;
 
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKMatcher;
@@ -30,6 +30,10 @@ public class EntraJwksHealthIndicator extends AbstractHealthIndicator {
 
     @Override
     protected void doHealthCheck(Health.Builder builder) {
+        contribute(jwkSource, builder);
+    }
+
+    static void contribute(JWKSource<SecurityContext> jwkSource, Health.Builder builder) {
         try {
             List<JWK> keys = jwkSource.get(new JWKSelector(new JWKMatcher.Builder().build()), null);
             int usable = 0;

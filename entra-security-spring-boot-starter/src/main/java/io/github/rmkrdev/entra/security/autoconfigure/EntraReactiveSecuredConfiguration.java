@@ -1,5 +1,9 @@
 package io.github.rmkrdev.entra.security.autoconfigure;
 
+import jakarta.annotation.security.DenyAll;
+import jakarta.annotation.security.PermitAll;
+import jakarta.annotation.security.RolesAllowed;
+
 import org.aopalliance.intercept.MethodInvocation;
 import org.springframework.aop.Pointcut;
 import org.springframework.aop.support.ComposablePointcut;
@@ -9,20 +13,25 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Role;
 import org.springframework.security.access.annotation.Secured;
-import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationManager;
+import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.authorization.ReactiveAuthorizationManager;
 import org.springframework.security.authorization.method.AuthorizationInterceptorsOrder;
 import org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor;
+import org.springframework.security.authorization.method.Jsr250AuthorizationManager;
 import org.springframework.security.authorization.method.SecuredAuthorizationManager;
 import org.springframework.security.core.Authentication;
 
 import reactor.core.publisher.Mono;
 
 /**
- * {@code @Secured} for WebFlux. Spring Security's {@code @EnableReactiveMethodSecurity} covers
- * {@code @PreAuthorize}, {@code @PostAuthorize}, {@code @PreFilter} and {@code @PostFilter} only; this adds
- * {@code @Secured} with the same semantics as on the servlet stack, for methods that return a
- * {@code Mono} or {@code Flux}.
+ * {@code @Secured} and {@code @RolesAllowed} for WebFlux. Spring Security's
+ * {@code @EnableReactiveMethodSecurity} covers {@code @PreAuthorize}, {@code @PostAuthorize},
+ * {@code @PreFilter} and {@code @PostFilter} only. This adds the same semantics as on the servlet stack,
+ * for methods that return a {@code Mono} or {@code Flux}.
+ * <p>
+ * Spring Security 7 removed {@code ReactiveAuthorizationManager#check}. Both adapters implement
+ * {@code authorize}.
  * <p>
  * Imported by the reactive auto-configuration and by {@code @EnableEntraSecurity} in reactive applications.
  */
@@ -35,8 +44,18 @@ public class EntraReactiveSecuredConfiguration {
     static AuthorizationManagerBeforeReactiveMethodInterceptor entraReactiveSecuredAuthorizationMethodInterceptor() {
         AuthorizationManagerBeforeReactiveMethodInterceptor interceptor =
                 new AuthorizationManagerBeforeReactiveMethodInterceptor(securedPointcut(),
-                        new SecuredReactiveAuthorizationManager());
+                        new BlockingAuthorizationAdapter(new SecuredAuthorizationManager()));
         interceptor.setOrder(AuthorizationInterceptorsOrder.SECURED.getOrder());
+        return interceptor;
+    }
+
+    @Bean
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    static AuthorizationManagerBeforeReactiveMethodInterceptor entraReactiveJsr250AuthorizationMethodInterceptor() {
+        AuthorizationManagerBeforeReactiveMethodInterceptor interceptor =
+                new AuthorizationManagerBeforeReactiveMethodInterceptor(jsr250Pointcut(),
+                        new BlockingAuthorizationAdapter(new Jsr250AuthorizationManager()));
+        interceptor.setOrder(AuthorizationInterceptorsOrder.JSR250.getOrder());
         return interceptor;
     }
 
@@ -45,22 +64,32 @@ public class EntraReactiveSecuredConfiguration {
                 .union(new AnnotationMatchingPointcut(Secured.class, true));
     }
 
-    /**
-     * Runs Spring Security's {@link SecuredAuthorizationManager} against the reactive authentication. No
-     * authentication means no decision, which the interceptor treats as denied.
-     * <p>
-     * Only {@code check} is implemented: it is the one abstract method on Spring Security 6.3 to 6.5, and from 6.4
-     * the default {@code authorize} delegates to it. {@code SecuredAuthorizationManager} itself only implements
-     * {@code check}, so the result is the same on every supported version.
-     */
-    static final class SecuredReactiveAuthorizationManager implements ReactiveAuthorizationManager<MethodInvocation> {
+    private static Pointcut jsr250Pointcut() {
+        Pointcut pointcut = annotated(RolesAllowed.class);
+        pointcut = new ComposablePointcut(pointcut).union(annotated(PermitAll.class)).union(annotated(DenyAll.class));
+        return pointcut;
+    }
 
-        private final SecuredAuthorizationManager secured = new SecuredAuthorizationManager();
+    private static Pointcut annotated(Class<? extends java.lang.annotation.Annotation> annotation) {
+        return new ComposablePointcut(new AnnotationMatchingPointcut(null, annotation, true))
+                .union(new AnnotationMatchingPointcut(annotation, true));
+    }
+
+    /**
+     * Runs a servlet {@link AuthorizationManager} against the reactive authentication. No authentication means
+     * no decision, which the interceptor treats as denied. A {@code null} result from the delegate abstains.
+     */
+    static final class BlockingAuthorizationAdapter implements ReactiveAuthorizationManager<MethodInvocation> {
+
+        private final AuthorizationManager<MethodInvocation> delegate;
+
+        BlockingAuthorizationAdapter(AuthorizationManager<MethodInvocation> delegate) {
+            this.delegate = delegate;
+        }
 
         @Override
-        @Deprecated
-        public Mono<AuthorizationDecision> check(Mono<Authentication> authentication, MethodInvocation invocation) {
-            return authentication.flatMap(auth -> Mono.justOrEmpty(secured.check(() -> auth, invocation)));
+        public Mono<AuthorizationResult> authorize(Mono<Authentication> authentication, MethodInvocation invocation) {
+            return authentication.flatMap(auth -> Mono.justOrEmpty(delegate.authorize(() -> auth, invocation)));
         }
     }
 }

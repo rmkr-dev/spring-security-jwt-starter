@@ -15,12 +15,18 @@ Add the test module next to the starter:
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-test</artifactId>
-    <version>0.7.0</version>
+    <version>1.0.0</version>
     <scope>test</scope>
 </dependency>
 ```
 
 It gives you two ways to test `@Secured` endpoints, and neither needs a real tenant or network access.
+
+`@WithMockEntraUser` and `@WithMockEntraService` need Spring Boot's security test support on the test classpath
+(`spring-boot-starter-security-test`). That module installs the MockMvc and WebTestClient security customizers
+that carry the test security context into the request. `@AutoConfigureMockMvc` and `@AutoConfigureWebTestClient`
+live in `org.springframework.boot.webmvc.test.autoconfigure` and
+`org.springframework.boot.webtestclient.autoconfigure`.
 
 ## Real tokens against a mock authority
 

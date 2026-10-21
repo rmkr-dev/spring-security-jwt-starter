@@ -25,7 +25,7 @@ public final class EntraRoutingExchangeFilterFunction implements ExchangeFilterF
 
     @Override
     public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
-        if (request.headers().containsKey(HttpHeaders.AUTHORIZATION)) {
+        if (request.headers().containsHeader(HttpHeaders.AUTHORIZATION)) {
             return next.exchange(request);
         }
         Optional<OutboundRouter.Route<ExchangeFilterFunction>> route = router.route(request.url());

@@ -22,6 +22,7 @@ flowchart LR
 | JWKS loaded while the application starts | on | `entra.security.cache.jwks-prewarm` |
 | JWKS refreshed in the background before it expires (a daemon timer, so even idle services stay warm) | 5 min before the 15 min TTL | `entra.security.cache.jwks-refresh-ahead`, `entra.security.cache.jwks-ttl` |
 | Validated tokens remembered (SHA-256 key, never past `exp` + clock skew, failures never cached) | 5 min, 10 000 entries | `entra.security.cache.validated-token-ttl`, `...validated-token-max-entries` |
+| Strict entry cap and one load per key | off | `entra.security.cache.bounded` |
 | Principal + role mapping per token, including the Graph overage result | 5 min, 10 000 entries | `entra.security.cache.authentication-ttl`, `...authentication-max-entries` |
 | Graph overage results per user | 10 min | `entra.security.graph.cache-ttl` |
 | Outbound and Graph app tokens renewed in the background inside the refresh window | on, 5 min skew | `entra.security.cache.token-background-refresh`, `entra.security.cache.token-refresh-skew` |
@@ -35,6 +36,23 @@ rate-limited to one every 30 seconds.
 **Trade-off.** A validated token stays accepted from the cache for up to `validated-token-ttl` even if Entra
 removes its signing key in the meantime. Entra rotates keys with weeks of overlap, so 5 minutes is safe; set it to
 `0` to turn the cache off.
+
+## `cache.bounded`
+
+```mermaid
+flowchart TD
+    R[Concurrent requests for one token] --> F{cache.bounded}
+    F -- false --> P[Each miss loads on its own<br/>the size cap is best-effort]
+    F -- true --> S[One load runs<br/>the others wait for it]
+    S --> C[Insert stays within max entries]
+```
+
+`entra.security.cache.bounded` defaults to `false`, which keeps the cache this page measured. Set it to `true`
+when many requests can miss the same key together (a cold start, a Graph overage lookup, an introspection call).
+The validated-token cache, the role-mapping cache, the introspection cache and the Graph membership cache then
+share one load per key and do not grow past their max entries. A failed load is not stored, so the next request
+tries again. Reactive Graph lookups share one `Mono` and do not block the event loop. The timing budget above
+is unchanged: the flag does not add work on a cache hit.
 
 ## Measured numbers
 

@@ -6,15 +6,16 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.oauth2.resource.reactive.ReactiveOAuth2ResourceServerAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.reactive.ReactiveUserDetailsServiceAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.reactive.WebFluxAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration;
+import org.springframework.boot.http.converter.autoconfigure.HttpMessageConvertersAutoConfiguration;
+import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.reactive.ReactiveOAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.ReactiveUserDetailsServiceAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
+import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
+import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
@@ -46,7 +47,7 @@ class EntraReactiveSecurityAutoConfigurationTest {
 
     private static final AutoConfigurations CONFIGURATIONS = AutoConfigurations.of(
             EntraSecurityAutoConfiguration.class, EntraReactiveSecurityAutoConfiguration.class,
-            EntraOutboundAutoConfiguration.class, ReactiveSecurityAutoConfiguration.class,
+            EntraOutboundAutoConfiguration.class, ReactiveWebSecurityAutoConfiguration.class,
             ReactiveUserDetailsServiceAutoConfiguration.class, ReactiveOAuth2ResourceServerAutoConfiguration.class,
             WebFluxAutoConfiguration.class, JacksonAutoConfiguration.class);
 
@@ -90,6 +91,7 @@ class EntraReactiveSecurityAutoConfigurationTest {
     void servletAndNonWebApplicationsDoNotGetReactiveBeans() {
         AutoConfigurations servlet = AutoConfigurations.of(EntraSecurityAutoConfiguration.class,
                 EntraReactiveSecurityAutoConfiguration.class, SecurityAutoConfiguration.class,
+                ServletWebSecurityAutoConfiguration.class,
                 OAuth2ResourceServerAutoConfiguration.class, WebMvcAutoConfiguration.class,
                 JacksonAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class);
         new WebApplicationContextRunner().withConfiguration(servlet).withPropertyValues(TENANT, CLIENT)

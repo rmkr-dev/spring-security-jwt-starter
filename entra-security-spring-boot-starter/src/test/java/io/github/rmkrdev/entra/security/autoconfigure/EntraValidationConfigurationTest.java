@@ -14,16 +14,17 @@ import java.time.ZoneOffset;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.actuate.autoconfigure.health.HealthContributorAutoConfiguration;
+import org.springframework.boot.health.autoconfigure.contributor.HealthContributorAutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.reactive.WebFluxAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration;
+import org.springframework.boot.http.converter.autoconfigure.HttpMessageConvertersAutoConfiguration;
+import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
+import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
+import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
 import org.springframework.boot.test.context.assertj.AssertableWebApplicationContext;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
@@ -47,9 +48,9 @@ class EntraValidationConfigurationTest {
     private static final String CLIENT = "entra.security.client-id=22222222-2222-2222-2222-222222222222";
 
     private final WebApplicationContextRunner runner = new WebApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class,
+            .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class,
                     EntraOutboundAutoConfiguration.class, EntraHealthAutoConfiguration.class,
-                    HealthContributorAutoConfiguration.class, SecurityAutoConfiguration.class,
+                    HealthContributorAutoConfiguration.class, SecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class,
                     UserDetailsServiceAutoConfiguration.class, OAuth2ResourceServerAutoConfiguration.class,
                     WebMvcAutoConfiguration.class, JacksonAutoConfiguration.class,
                     HttpMessageConvertersAutoConfiguration.class))
@@ -142,8 +143,8 @@ class EntraValidationConfigurationTest {
         SERVER.stubFor(get("/oidc/userinfo").withHeader("Authorization", equalTo("Bearer graph-token"))
                 .willReturn(okJson("{\"id\":\"o-1\",\"displayName\":\"Graph User\"}")));
         new ReactiveWebApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class,
-                        EntraReactiveSecurityAutoConfiguration.class, ReactiveSecurityAutoConfiguration.class,
+                .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class,
+                        EntraReactiveSecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class, ReactiveWebSecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class,
                         WebFluxAutoConfiguration.class, JacksonAutoConfiguration.class))
                 .withPropertyValues(TENANT, CLIENT, "entra.security.validation.mode=introspection",
                         "entra.security.validation.introspection.type=userinfo",

@@ -23,11 +23,12 @@ public final class JwtAuthenticationOutcomes {
     public static final String UNKNOWN_KEY = "unknown_key";
     public static final String MALFORMED = "malformed";
     public static final String CLIENT_NOT_ALLOWED = "client_not_allowed";
+    public static final String NOT_ACCESS_TOKEN = "not_access_token";
     public static final String INVALID_TOKEN = "invalid_token";
 
     private static final Set<String> REASONS = Set.of(NONE, MISSING, EXPIRED, NOT_YET_VALID, INVALID_ISSUER,
             INVALID_AUDIENCE, INVALID_TENANT, MISSING_CLAIMS, INVALID_SIGNATURE, UNKNOWN_KEY, MALFORMED,
-            CLIENT_NOT_ALLOWED, INVALID_TOKEN);
+            CLIENT_NOT_ALLOWED, NOT_ACCESS_TOKEN, INVALID_TOKEN);
 
     private JwtAuthenticationOutcomes() {
     }
@@ -40,6 +41,9 @@ public final class JwtAuthenticationOutcomes {
         String text = describe(error);
         if (text.contains("calling client application is not allowed")) {
             return CLIENT_NOT_ALLOWED;
+        }
+        if (text.contains(EntraAccessTokenValidator.DESCRIPTION)) {
+            return NOT_ACCESS_TOKEN;
         }
         if (text.contains("Jwt expired")) {
             return EXPIRED;

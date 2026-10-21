@@ -177,7 +177,7 @@ class OnBehalfOfTokenProviderTest {
                 .withHeader("Content-Type", "application/json")
                 .withBody("{\"error\":\"interaction_required\",\"error_description\":\"AADSTS50076: you must use "
                         + "multi-factor authentication\",\"error_codes\":[50076],\"suberror\":\"basic_action\","
-                        + "\"claims\":" + com.fasterxml.jackson.databind.node.TextNode.valueOf(claims) + "}")));
+                        + "\"claims\":" + tools.jackson.databind.node.StringNode.valueOf(claims) + "}")));
         OnBehalfOfTokenProvider provider = provider(new ClientSecretCredential("s"));
 
         assertThatThrownBy(() -> provider.getToken(user(ALICE, TENANT, "a"), SCOPE))

@@ -79,6 +79,17 @@ public final class EntraJwtAuthenticationConverter implements Converter<Jwt, Abs
     }
 
     private AbstractAuthenticationToken doConvert(Jwt jwt) {
+        if (cache != null && cache.isBounded()) {
+            EntraAuthenticationToken cached = cache.get(jwt);
+            if (cached != null) {
+                return cached;
+            }
+            return cache.coalesce(jwt, () -> map(jwt));
+        }
+        return map(jwt);
+    }
+
+    private EntraAuthenticationToken map(Jwt jwt) {
         if (cache != null) {
             EntraAuthenticationToken cached = cache.get(jwt);
             if (cached != null) {

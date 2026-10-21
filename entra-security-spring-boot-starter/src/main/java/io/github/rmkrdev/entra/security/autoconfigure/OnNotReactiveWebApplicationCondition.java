@@ -7,9 +7,9 @@ import org.springframework.boot.autoconfigure.condition.NoneNestedConditions;
  * Matches servlet and non-web applications, so the servlet beans keep working in plain application
  * contexts (and tests) while staying out of WebFlux applications.
  */
-class OnNotReactiveWebApplicationCondition extends NoneNestedConditions {
+public class OnNotReactiveWebApplicationCondition extends NoneNestedConditions {
 
-    OnNotReactiveWebApplicationCondition() {
+    public OnNotReactiveWebApplicationCondition() {
         super(ConfigurationPhase.PARSE_CONFIGURATION);
     }
 

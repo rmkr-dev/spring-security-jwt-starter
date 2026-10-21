@@ -17,16 +17,54 @@ flowchart LR
 
 Sources later in Spring's order win. Env vars beat the ConfigMap file, which beats the packaged `application.yaml`.
 
+## Optional flags
+
+Three behaviors are off until you set one flag each. All three use the `entra.security` prefix. Leaving them
+unset keeps a single-tenant API, the previous cache, and the previous token acceptance rules.
+
+```mermaid
+flowchart TD
+    F{Flag} -- "validation.reject-id-tokens=false" --> A[ID token with aud=client-id can pass signature checks]
+    F -- "validation.reject-id-tokens=true" --> B["401 not_access_token unless idtyp, scp or roles is present"]
+    C{Flag} -- "cache.bounded=false" --> D[Previous cache: size cap is best-effort]
+    C -- "cache.bounded=true" --> E[Cap holds under concurrency<br/>one load per key]
+    M{Flag} -- "multi-tenant.enabled=false" --> S[One tenant-id GUID<br/>common and organizations rejected]
+    M -- "multi-tenant.enabled=true" --> T["tid must be in tenant-ids<br/>JWKS from /common/discovery/v2.0/keys"]
+```
+
+```yaml
+entra:
+  security:
+    validation:
+      reject-id-tokens: true          # default false
+    cache:
+      bounded: true                    # default false
+    multi-tenant:
+      enabled: false                   # default; leave this for a single-tenant API
+      tenant-ids: []
+```
+
+| Flag | Default | What changes when you turn it on |
+| --- | --- | --- |
+| `validation.reject-id-tokens` | `false` | A token must carry `idtyp`, a non-empty `scp`, or a non-empty `roles`. An ID token, whose `aud` is often the raw client id (also a default audience), is rejected with audit reason `not_access_token`. A real access token whose `aud` is the client id still passes. |
+| `cache.bounded` | `false` | Every Entra cache (validated tokens, role mapping, introspection, Graph membership) stays within its max entries when many threads insert at once, and one load runs per key. Reactive Graph lookups share one `Mono` instead of blocking. Failures are still not cached. |
+| `multi-tenant.enabled` | `false` | Inbound `tid` must be a GUID in `multi-tenant.tenant-ids`. A GUID `tenant-id` is included in that list. Issuers are the v1 and v2 issuers of each accepted directory unless you set `issuers` yourself. The JWKS URI becomes `{authority-host}/common/discovery/v2.0/keys` unless you set `jwk-set-uri` or `authority.jwks-uri`. `tenant-id` may be `organizations` or `common`. `consumers` stays rejected. Outbound client-credentials still use a real directory: set `tenant-id` to a GUID, or set `credential.tenant-id`. |
+
+With `multi-tenant.enabled=false`, `tenant-id` must be one directory GUID. `common`, `organizations` and
+`consumers` stop startup.
+
 ## All properties
 
 | Property | Default | Description |
 | --- | --- | --- |
 | **Core** | | |
 | `enabled` | `true` | Whether the starter is active. |
+| `multi-tenant.enabled` | `false` | When true, accept tokens whose `tid` is in `multi-tenant.tenant-ids` (plus a GUID `tenant-id`). Off by default: one directory only. |
+| `multi-tenant.tenant-ids` | - | Directory GUIDs allowed when `multi-tenant.enabled` is true. Ignored while the flag is off. |
 | `tenant-id` | **required** | Directory (tenant) ID of your Microsoft Entra tenant (a GUID). |
 | `client-id` | **required** | Application (client) ID of this API's app registration. |
 | `audiences` | - | Accepted token audiences. Defaults to api://{client-id} and {client-id}. |
-| `require-tenant-match` | `true` | Whether the tid claim must equal tenant-id. |
+| `require-tenant-match` | `true` | Whether `tid` must equal `tenant-id`. When `multi-tenant.enabled` is true, `tid` must be in the allow-list instead. |
 | `clock-skew` | `60s` | Tolerated clock skew when checking exp and nbf. |
 | `public-paths` | `/actuator/health`, `/actuator/health/**`, `/actuator/info` | Ant-style paths that are reachable without a token. |
 | **Authority and endpoints** | | |
@@ -64,6 +102,7 @@ Sources later in Spring's order win. Env vars beat the ConfigMap file, which bea
 | `validation.introspection.uri` | - | Endpoint to call. Defaults to the discovered introspection_endpoint for rfc7662, and to the authority userinfo endpoint (Graph /oidc/userinfo by default) for userinfo. |
 | `validation.introspection.validate-claims` | `true` | Check exp/nbf, iss, aud and tid of the introspected claims with the same rules as JWKS validation. Applies to rfc7662; userinfo checks only the timestamps, since those tokens are for Graph. |
 | `validation.mode` | `jwks` | jwks (default), introspection or hybrid. |
+| `validation.reject-id-tokens` | `false` | When true, reject tokens that have none of `idtyp`, `scp` or `roles`. Audit reason `not_access_token`. Off by default. |
 | **Role mapping** | | |
 | `group-role-mappings` | - | Group object id (or group name, when the groups claim emits names) to roles. |
 | `app-role-mappings` | - | App role value (the roles claim) to roles. Unmapped app roles become ROLE_{value} unless disabled. |
@@ -119,6 +158,7 @@ Sources later in Spring's order win. Env vars beat the ConfigMap file, which bea
 | `outbound.routes[n].allow-http` | in-cluster and loopback only | Whether `hosts` match over plain http. |
 | **Caching and HTTP** | | |
 | `cache.authentication-max-entries` | `10000` | Maximum number of remembered role mappings. |
+| `cache.bounded` | `false` | When true, every Entra cache stays within its max entries under concurrency and one load runs per key. Off by default. |
 | `cache.authentication-ttl` | `5m` | How long the principal and role mapping of a token are remembered (including the Graph overage result). Never past the token's `exp`. Zero disables the cache. |
 | `cache.jwks-prewarm` | `true` | Load the JWKS while the application starts, so the first request never waits for it. |
 | `cache.jwks-refresh-ahead` | `5m` | Refresh the JWKS on a background thread during this window before `jwks-ttl` ends; zero refreshes on the request that finds the keys expired. Capped at half of `jwks-ttl`. |

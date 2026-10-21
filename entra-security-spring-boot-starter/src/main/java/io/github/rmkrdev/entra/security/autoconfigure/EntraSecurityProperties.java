@@ -126,6 +126,12 @@ public class EntraSecurityProperties implements Validator {
     @Valid
     private final Validation validation = new Validation();
 
+    /**
+     * Optional allow-list of directory tenants. Off by default, which keeps a single {@code tenant-id}.
+     */
+    @Valid
+    private final MultiTenant multiTenant = new MultiTenant();
+
     @Valid
     private final User user = new User();
 
@@ -180,9 +186,41 @@ public class EntraSecurityProperties implements Validator {
             return new LinkedHashSet<>(issuers);
         }
         Set<String> result = new LinkedHashSet<>();
-        result.add(trimSlash(resolveAuthorityHost().toString()) + "/" + tenantId + "/v2.0");
-        result.add("https://sts.windows.net/" + tenantId + "/");
+        if (multiTenant.isEnabled()) {
+            for (String id : resolveAcceptedTenantIds()) {
+                addTenantIssuers(result, id);
+            }
+            if (!result.isEmpty()) {
+                return result;
+            }
+        }
+        addTenantIssuers(result, tenantId);
         return result;
+    }
+
+    /**
+     * Directory ids whose tokens are accepted when {@code entra.security.multi-tenant.enabled} is true.
+     * A GUID {@code tenant-id} is included. Empty when the flag is off.
+     */
+    public Set<String> resolveAcceptedTenantIds() {
+        if (!multiTenant.isEnabled()) {
+            return Set.of();
+        }
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        if (tenantId != null && GUID.matcher(tenantId).matches()) {
+            ids.add(tenantId);
+        }
+        for (String id : multiTenant.getTenantIds()) {
+            if (id != null && !id.isBlank()) {
+                ids.add(id.trim());
+            }
+        }
+        return ids;
+    }
+
+    private void addTenantIssuers(Set<String> result, String id) {
+        result.add(trimSlash(resolveAuthorityHost().toString()) + "/" + id + "/v2.0");
+        result.add("https://sts.windows.net/" + id + "/");
     }
 
     /** The effective audiences: the configured ones, or api://{client-id} and {client-id}. */
@@ -214,6 +252,9 @@ public class EntraSecurityProperties implements Validator {
         }
         if (jwkSetUri != null) {
             return jwkSetUri;
+        }
+        if (multiTenant.isEnabled()) {
+            return URI.create(trimSlash(resolveAuthorityHost().toString()) + "/common/discovery/v2.0/keys");
         }
         return authorityUri("/discovery/v2.0/keys");
     }
@@ -261,6 +302,9 @@ public class EntraSecurityProperties implements Validator {
      * a GUID (domain tenants are covered by the explicit issuers instead).
      */
     public String resolveRequiredTenantId() {
+        if (multiTenant.isEnabled()) {
+            return null;
+        }
         return requireTenantMatch && tenantId != null && GUID.matcher(tenantId).matches() ? tenantId : null;
     }
 
@@ -318,18 +362,51 @@ public class EntraSecurityProperties implements Validator {
         }
     }
 
-    @AssertTrue(message = "entra.security.tenant-id must be a single tenant: 'common', 'organizations' and "
-            + "'consumers' are not supported")
+    @AssertTrue(message = "entra.security.tenant-id values 'common' and 'organizations' require "
+            + "entra.security.multi-tenant.enabled=true; 'consumers' is not supported")
     public boolean isSingleTenant() {
-        return tenantId == null || !MULTI_TENANT_AUTHORITIES.contains(tenantId.toLowerCase(Locale.ROOT));
+        if (tenantId == null) {
+            return true;
+        }
+        String value = tenantId.toLowerCase(Locale.ROOT);
+        if (!MULTI_TENANT_AUTHORITIES.contains(value)) {
+            return true;
+        }
+        if ("consumers".equals(value)) {
+            return false;
+        }
+        return multiTenant.isEnabled();
+    }
+
+    @AssertTrue(message = "entra.security.multi-tenant.enabled=true requires at least one directory GUID in "
+            + "entra.security.multi-tenant.tenant-ids or a GUID entra.security.tenant-id")
+    public boolean isMultiTenantConfigured() {
+        if (!multiTenant.isEnabled()) {
+            return true;
+        }
+        if ("consumers".equalsIgnoreCase(tenantId)) {
+            return false;
+        }
+        for (String id : resolveAcceptedTenantIds()) {
+            if (!GUID.matcher(id).matches()) {
+                return false;
+            }
+        }
+        return !resolveAcceptedTenantIds().isEmpty();
     }
 
     @AssertTrue(message = "entra.security.tenant-id must be the tenant GUID (not a domain name) unless "
-            + "entra.security.authority.issuers (or entra.security.issuers) is set explicitly or OIDC discovery is "
-            + "enabled, because Entra issuers always contain the GUID")
+            + "entra.security.authority.issuers (or entra.security.issuers) is set explicitly, OIDC discovery is "
+            + "enabled, or entra.security.multi-tenant.enabled=true with a tenant allow-list, because Entra issuers "
+            + "always contain the GUID")
     public boolean isTenantIdUsableForIssuers() {
-        return tenantId == null || !issuers.isEmpty() || !authority.getIssuers().isEmpty() || isDiscoveryActive()
-                || GUID.matcher(tenantId).matches() || !isSingleTenant();
+        if (tenantId == null || !issuers.isEmpty() || !authority.getIssuers().isEmpty() || isDiscoveryActive()) {
+            return true;
+        }
+        if (GUID.matcher(tenantId).matches()) {
+            return true;
+        }
+        return multiTenant.isEnabled() && !resolveAcceptedTenantIds().isEmpty();
     }
 
     @AssertTrue(message = "entra.security.validation.introspection.auth-method=bearer requires "
@@ -523,6 +600,10 @@ public class EntraSecurityProperties implements Validator {
 
     public Validation getValidation() {
         return validation;
+    }
+
+    public MultiTenant getMultiTenant() {
+        return multiTenant;
     }
 
     public User getUser() {
@@ -873,6 +954,12 @@ public class EntraSecurityProperties implements Validator {
         @NotNull
         private HybridStrategy hybridStrategy = HybridStrategy.BOTH;
 
+        /**
+         * Reject tokens that do not carry {@code idtyp}, {@code scp} or {@code roles}. An ID token whose
+         * {@code aud} is this API's client id is then rejected. Off by default.
+         */
+        private boolean rejectIdTokens = false;
+
         @Valid
         private final Introspection introspection = new Introspection();
 
@@ -892,8 +979,45 @@ public class EntraSecurityProperties implements Validator {
             this.hybridStrategy = hybridStrategy;
         }
 
+        public boolean isRejectIdTokens() {
+            return rejectIdTokens;
+        }
+
+        public void setRejectIdTokens(boolean rejectIdTokens) {
+            this.rejectIdTokens = rejectIdTokens;
+        }
+
         public Introspection getIntrospection() {
             return introspection;
+        }
+    }
+
+    /**
+     * Allow-list of Entra directory tenants. {@code enabled} is the single switch; leave it {@code false} for a
+     * single-tenant API.
+     */
+    public static class MultiTenant {
+
+        /** Accept tokens whose {@code tid} is in {@code tenant-ids} (and a GUID {@code tenant-id}). */
+        private boolean enabled = false;
+
+        /** Directory (tenant) GUIDs that may call this API when {@code enabled} is true. */
+        private List<String> tenantIds = new ArrayList<>();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public List<String> getTenantIds() {
+            return tenantIds;
+        }
+
+        public void setTenantIds(List<String> tenantIds) {
+            this.tenantIds = tenantIds;
         }
     }
 
@@ -1785,6 +1909,12 @@ public class EntraSecurityProperties implements Validator {
          */
         private boolean tokenBackgroundRefresh = true;
 
+        /**
+         * Keep every Entra cache within its max entries under concurrency, and run one load per key.
+         * Off by default, which keeps the previous cache.
+         */
+        private boolean bounded = false;
+
         public boolean isJwksPrewarm() {
             return jwksPrewarm;
         }
@@ -1839,6 +1969,14 @@ public class EntraSecurityProperties implements Validator {
 
         public void setTokenBackgroundRefresh(boolean tokenBackgroundRefresh) {
             this.tokenBackgroundRefresh = tokenBackgroundRefresh;
+        }
+
+        public boolean isBounded() {
+            return bounded;
+        }
+
+        public void setBounded(boolean bounded) {
+            this.bounded = bounded;
         }
 
         public int getOnBehalfOfMaxEntries() {

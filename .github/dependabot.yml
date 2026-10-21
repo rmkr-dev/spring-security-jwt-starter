@@ -18,7 +18,7 @@ updates:
         patterns:
           - "com.azure:*"
     ignore:
-      # The starter targets Spring Boot 3.x; a move to 4.x is a deliberate, separate change.
+      # Boot 5 would be a separate major. 4.1.x patches and minors are welcome.
       - dependency-name: "org.springframework.boot:*"
         update-types: ["version-update:semver-major"]
 

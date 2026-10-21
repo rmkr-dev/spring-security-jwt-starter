@@ -93,13 +93,26 @@ public final class EntraJwtDecoders {
      */
     public static NimbusJwtDecoder create(JWKSource<SecurityContext> jwkSource, Collection<String> issuers,
             Collection<String> audiences, String tenantId, Duration clockSkew) {
+        return create(jwkSource, issuers, audiences, tenantId, List.of(), false, clockSkew);
+    }
+
+    /**
+     * Creates the decoder.
+     *
+     * @param allowedTenantIds directory ids accepted in {@code tid} when more than one tenant is allowed;
+     *                         empty keeps the single {@code tenantId} check
+     * @param rejectIdTokens   require {@code idtyp}, {@code scp} or {@code roles}, so an ID token is rejected
+     */
+    public static NimbusJwtDecoder create(JWKSource<SecurityContext> jwkSource, Collection<String> issuers,
+            Collection<String> audiences, String tenantId, Collection<String> allowedTenantIds,
+            boolean rejectIdTokens, Duration clockSkew) {
         DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
         processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, jwkSource));
         // Claims are validated by Spring Security validators below.
         processor.setJWTClaimsSetVerifier((claims, context) -> {
         });
         NimbusJwtDecoder decoder = new NimbusJwtDecoder(processor);
-        decoder.setJwtValidator(validator(issuers, audiences, tenantId, clockSkew));
+        decoder.setJwtValidator(validator(issuers, audiences, tenantId, allowedTenantIds, rejectIdTokens, clockSkew));
         return decoder;
     }
 
@@ -108,13 +121,30 @@ public final class EntraJwtDecoders {
      */
     public static OAuth2TokenValidator<Jwt> validator(Collection<String> issuers, Collection<String> audiences,
             String tenantId, Duration clockSkew) {
+        return validator(issuers, audiences, tenantId, List.of(), false, clockSkew);
+    }
+
+    /**
+     * The composite validator used by {@link #create}.
+     *
+     * @param allowedTenantIds directory ids accepted in {@code tid}; when non-empty this replaces {@code tenantId}
+     * @param rejectIdTokens   require an Entra access-token claim ({@code idtyp}, {@code scp} or {@code roles})
+     */
+    public static OAuth2TokenValidator<Jwt> validator(Collection<String> issuers, Collection<String> audiences,
+            String tenantId, Collection<String> allowedTenantIds, boolean rejectIdTokens, Duration clockSkew) {
         List<OAuth2TokenValidator<Jwt>> validators = new ArrayList<>();
         validators.add(new RequiredClaimsValidator(List.of("exp", "iss", "aud")));
         validators.add(new JwtTimestampValidator(clockSkew));
         validators.add(new EntraIssuerValidator(issuers));
         validators.add(new EntraAudienceValidator(audiences));
-        if (tenantId != null) {
+        if (allowedTenantIds != null && !allowedTenantIds.isEmpty()) {
+            validators.add(new EntraTenantAllowListValidator(allowedTenantIds));
+        }
+        else if (tenantId != null) {
             validators.add(new EntraTenantValidator(tenantId));
+        }
+        if (rejectIdTokens) {
+            validators.add(new EntraAccessTokenValidator());
         }
         return new DelegatingOAuth2TokenValidator<>(validators);
     }

@@ -49,11 +49,21 @@ public final class CachingTokenIntrospector implements TokenIntrospector {
 
     public CachingTokenIntrospector(TokenIntrospector delegate, Duration positiveTtl, Duration negativeTtl,
             int maxEntries, IntrospectionCircuitBreaker breaker, Clock clock, EntraSecurityObservations observations) {
+        this(delegate, positiveTtl, negativeTtl, maxEntries, breaker, clock, observations, false);
+    }
+
+    /**
+     * @param bounded when {@code true}, one remote check runs per token and the cache stays within
+     *                {@code maxEntries}
+     */
+    public CachingTokenIntrospector(TokenIntrospector delegate, Duration positiveTtl, Duration negativeTtl,
+            int maxEntries, IntrospectionCircuitBreaker breaker, Clock clock, EntraSecurityObservations observations,
+            boolean bounded) {
         this.delegate = delegate;
         this.positiveTtl = positiveTtl;
         this.negativeTtl = negativeTtl;
         this.cache = new TtlCache<>(positiveTtl.compareTo(negativeTtl) > 0 ? positiveTtl : negativeTtl, maxEntries,
-                clock);
+                clock, bounded);
         this.breaker = breaker;
         this.clock = clock;
         this.observations = observations == null ? EntraSecurityObservations.NO_OP : observations;
@@ -62,6 +72,17 @@ public final class CachingTokenIntrospector implements TokenIntrospector {
     @Override
     public IntrospectionResult introspect(String token) {
         String key = hash(token);
+        if (cache.isBounded()) {
+            IntrospectionResult cached = cache.getIfPresent(key);
+            if (cached != null) {
+                return cached;
+            }
+            return cache.coalesce(key, () -> fetch(token, key));
+        }
+        return fetch(token, key);
+    }
+
+    private IntrospectionResult fetch(String token, String key) {
         IntrospectionResult cached = cache.getIfPresent(key);
         if (cached != null) {
             return cached;

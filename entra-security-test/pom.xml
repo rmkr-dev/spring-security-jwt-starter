@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.rmkr-dev</groupId>
         <artifactId>entra-security-parent</artifactId>
-        <version>0.7.0</version>
+        <version>1.0.0</version>
     </parent>
 
     <artifactId>entra-security-test</artifactId>
@@ -59,18 +59,28 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- WebFlux tests run with spring.main.web-application-type=reactive. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
+            <artifactId>spring-boot-starter-webflux-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
+            <artifactId>spring-boot-starter-webclient</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

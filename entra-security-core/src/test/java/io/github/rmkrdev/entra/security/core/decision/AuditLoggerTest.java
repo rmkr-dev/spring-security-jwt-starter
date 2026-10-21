@@ -9,8 +9,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 class AuditLoggerTest {
 
@@ -23,16 +23,16 @@ class AuditLoggerTest {
         String line = new AuditLogger(AuditLogger.Format.JSON).format(USER);
         assertThat(line).doesNotContain("\n");
         JsonNode json = new ObjectMapper().readTree(line);
-        assertThat(json.get("ts").asText()).isEqualTo("2026-10-19T06:00:00Z");
-        assertThat(json.get("traceId").asText()).isEqualTo("trace-1");
-        assertThat(json.get("outcome").asText()).isEqualTo("success");
-        assertThat(json.get("reason").asText()).isEqualTo("authorized");
-        assertThat(json.get("tokenType").asText()).isEqualTo("user");
-        assertThat(json.get("tid").asText()).isEqualTo("tid-1");
-        assertThat(json.get("oid").asText()).isEqualTo("oid-1");
+        assertThat(json.get("ts").asString()).isEqualTo("2026-10-19T06:00:00Z");
+        assertThat(json.get("traceId").asString()).isEqualTo("trace-1");
+        assertThat(json.get("outcome").asString()).isEqualTo("success");
+        assertThat(json.get("reason").asString()).isEqualTo("authorized");
+        assertThat(json.get("tokenType").asString()).isEqualTo("user");
+        assertThat(json.get("tid").asString()).isEqualTo("tid-1");
+        assertThat(json.get("oid").asString()).isEqualTo("oid-1");
         assertThat(json.get("roles")).hasSize(2);
-        assertThat(json.get("path").asText()).isEqualTo("/orders");
-        assertThat(json.get("method").asText()).isEqualTo("GET");
+        assertThat(json.get("path").asString()).isEqualTo("/orders");
+        assertThat(json.get("method").asString()).isEqualTo("GET");
         assertThat(json.get("authMs").asDouble()).isEqualTo(0.412);
     }
 
@@ -53,7 +53,7 @@ class AuditLoggerTest {
         AuditLogger logger = new AuditLogger(null, LoggerFactory.getLogger("test"));
         String line = logger.format(missing);
         assertThat(line).doesNotContain("\"tid\"").doesNotContain("\"oid\"");
-        assertThat(new ObjectMapper().readTree(line).get("path").asText()).isEqualTo("/x\"\\\t\r\n\u0001");
+        assertThat(new ObjectMapper().readTree(line).get("path").asString()).isEqualTo("/x\"\\\t\r\n\u0001");
         logger.onDecision(missing);
     }
 }

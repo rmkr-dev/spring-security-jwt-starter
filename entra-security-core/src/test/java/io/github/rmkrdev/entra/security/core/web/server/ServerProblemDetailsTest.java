@@ -20,8 +20,8 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import org.springframework.web.server.ServerWebExchange;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import io.github.rmkrdev.entra.security.core.principal.EntraAuthenticationToken;
 import io.github.rmkrdev.entra.security.core.principal.EntraPrincipal;
@@ -51,9 +51,9 @@ class ServerProblemDetailsTest {
                 .isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
         assertThat(exchange.getResponse().getHeaders().getFirst("WWW-Authenticate"))
                 .startsWith("Bearer").contains("invalid_token");
-        assertThat(body.get("detail").asText()).isEqualTo("Jwt expired");
-        assertThat(body.get("instance").asText()).isEqualTo("/api/x");
-        assertThat(body.get("error").asText()).isEqualTo("invalid_token");
+        assertThat(body.get("detail").asString()).isEqualTo("Jwt expired");
+        assertThat(body.get("instance").asString()).isEqualTo("/api/x");
+        assertThat(body.get("error").asString()).isEqualTo("invalid_token");
     }
 
     @Test

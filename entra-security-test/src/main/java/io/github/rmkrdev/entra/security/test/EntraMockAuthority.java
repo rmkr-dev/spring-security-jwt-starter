@@ -23,8 +23,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.JWKSet;
@@ -513,7 +513,7 @@ public final class EntraMockAuthority implements AutoCloseable {
         try {
             return json.writeValueAsString(value);
         }
-        catch (JsonProcessingException ex) {
+        catch (JacksonException ex) {
             throw new IllegalStateException(ex);
         }
     }

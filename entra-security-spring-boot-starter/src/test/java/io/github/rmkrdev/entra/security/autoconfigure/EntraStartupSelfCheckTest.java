@@ -31,10 +31,11 @@ class EntraStartupSelfCheckTest {
 
     private final WebApplicationContextRunner runner = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class,
-                    org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration.class,
-                    org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration.class,
-                    org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration.class,
-                    org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration.class));
+                    org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration.class,
+                    org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration.class,
+                    org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration.class,
+                    org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration.class,
+                    org.springframework.boot.http.converter.autoconfigure.HttpMessageConvertersAutoConfiguration.class));
 
     @BeforeEach
     void start() {

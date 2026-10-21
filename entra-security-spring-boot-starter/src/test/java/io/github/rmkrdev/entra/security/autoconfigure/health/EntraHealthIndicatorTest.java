@@ -15,8 +15,8 @@ import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.Status;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.Status;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
@@ -57,6 +57,9 @@ class EntraHealthIndicatorTest {
         Health health = new EntraJwksHealthIndicator(source).health();
         assertThat(health.getStatus()).isEqualTo(Status.UP);
         assertThat(health.getDetails()).containsEntry("keys", 1);
+        Health reactive = new EntraJwksReactiveHealthIndicator(source).health().block();
+        assertThat(reactive.getStatus()).isEqualTo(Status.UP);
+        assertThat(reactive.getDetails()).containsEntry("keys", 1);
     }
 
     @Test

@@ -57,10 +57,10 @@ one.
 ## Dependencies
 
 Dependabot opens weekly pull requests for Maven dependencies and GitHub Actions. Spring Boot major
-upgrades are excluded on purpose; they are planned as separate work.
+upgrades (Boot 5 and later) are excluded on purpose; they are planned as separate work.
 
-CI also builds against older Spring Boot 3.x lines; avoid Spring APIs newer than Spring Boot 3.3 or guard
-them. See [docs/compatibility.md](docs/compatibility.md).
+CI builds the pinned Spring Boot 4.1 line on Java 17, 21 and 25. See
+[docs/compatibility.md](docs/compatibility.md).
 
 ## License
 

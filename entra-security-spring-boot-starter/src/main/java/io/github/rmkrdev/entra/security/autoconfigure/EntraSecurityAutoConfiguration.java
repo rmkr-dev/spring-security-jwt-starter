@@ -10,11 +10,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
-import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.beans.factory.config.BeanDefinition;
@@ -29,7 +29,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 
@@ -64,9 +64,12 @@ import io.github.rmkrdev.entra.security.core.web.ServletAuthTiming;
  * reactive web applications.
  */
 @AutoConfiguration(beforeName = {
-        "org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration",
-        "org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration",
-        "org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration" })
+        "org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration",
+        "org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration",
+        "org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration",
+        "org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration",
+        "org.springframework.boot.security.oauth2.server.resource.autoconfigure.web.OAuth2ResourceServerWebSecurityAutoConfiguration" })
+@ImportRuntimeHints(EntraSecurityRuntimeHints.class)
 @ConditionalOnClass({ JwtDecoder.class, SecurityFilterChain.class })
 @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "enabled", havingValue = "true",
         matchIfMissing = true)
@@ -168,7 +171,8 @@ public class EntraSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public AuthenticationCache entraAuthenticationCache(EntraSecurityProperties properties) {
         return new AuthenticationCache(properties.getCache().getAuthenticationTtl(),
-                properties.getCache().getAuthenticationMaxEntries(), Clock.systemUTC());
+                properties.getCache().getAuthenticationMaxEntries(), Clock.systemUTC(),
+                properties.getCache().isBounded());
     }
 
     /**
@@ -241,7 +245,7 @@ public class EntraSecurityAutoConfiguration {
                     endpoints.graphBaseUrl(), graph.getScope(), graph.getMaxPages(),
                     observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
             return new CachingGroupMembershipResolver(graphResolver, graph.getCacheTtl(),
-                    graph.getCacheMaxEntries());
+                    graph.getCacheMaxEntries(), Clock.systemUTC(), properties.getCache().isBounded());
         }
 
         @Bean
@@ -259,8 +263,8 @@ public class EntraSecurityAutoConfiguration {
 
         @Bean
         @ConditionalOnMissingBean
-        public ProblemDetailsWriter entraProblemDetailsWriter(ObjectProvider<ObjectMapper> objectMapper) {
-            return new ProblemDetailsWriter(objectMapper.getIfAvailable(ObjectMapper::new));
+        public ProblemDetailsWriter entraProblemDetailsWriter(ObjectProvider<JsonMapper> jsonMapper) {
+            return new ProblemDetailsWriter(jsonMapper.getIfAvailable(JsonMapper::new));
         }
 
         @Bean
@@ -299,7 +303,7 @@ public class EntraSecurityAutoConfiguration {
     static class EntraSecurityFilterChainConfiguration {
 
         @Bean
-        @Order(SecurityProperties.BASIC_AUTH_ORDER)
+        @Order(EntraSecurityOrders.FILTER_CHAIN)
         SecurityFilterChain entraSecurityFilterChain(HttpSecurity http, EntraHttpSecurity entraHttpSecurity)
                 throws Exception {
             return entraHttpSecurity.configure(http).build();

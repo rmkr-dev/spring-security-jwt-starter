@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.rmkr-dev</groupId>
         <artifactId>entra-security-parent</artifactId>
-        <version>0.7.0</version>
+        <version>1.0.0</version>
     </parent>
 
     <artifactId>sample-reactive-api</artifactId>
@@ -40,7 +40,12 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
+            <artifactId>spring-boot-starter-webflux-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

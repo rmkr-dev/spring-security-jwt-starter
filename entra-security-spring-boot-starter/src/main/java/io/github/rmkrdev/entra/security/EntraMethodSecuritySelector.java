@@ -6,8 +6,8 @@ import java.util.Map;
 
 import org.springframework.aop.config.AopConfigUtils;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
-import org.springframework.boot.web.reactive.context.ConfigurableReactiveWebEnvironment;
-import org.springframework.boot.web.reactive.context.ReactiveWebApplicationContext;
+import org.springframework.boot.web.context.reactive.ConfigurableReactiveWebEnvironment;
+import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.context.ResourceLoaderAware;
 import org.springframework.context.annotation.AdviceMode;

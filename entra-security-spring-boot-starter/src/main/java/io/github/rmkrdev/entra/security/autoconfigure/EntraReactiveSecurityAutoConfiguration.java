@@ -8,7 +8,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
-import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,7 +23,7 @@ import org.springframework.web.reactive.config.WebFluxConfigurer;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.result.method.annotation.ArgumentResolverConfigurer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 
@@ -57,9 +56,10 @@ import reactor.core.publisher.Mono;
  * classifier, authority mapper) come from {@link EntraSecurityAutoConfiguration}.
  */
 @AutoConfiguration(after = EntraSecurityAutoConfiguration.class, beforeName = {
-        "org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration",
-        "org.springframework.boot.autoconfigure.security.reactive.ReactiveUserDetailsServiceAutoConfiguration",
-        "org.springframework.boot.autoconfigure.security.oauth2.resource.reactive.ReactiveOAuth2ResourceServerAutoConfiguration" })
+        "org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration",
+        "org.springframework.boot.security.autoconfigure.ReactiveUserDetailsServiceAutoConfiguration",
+        "org.springframework.boot.security.oauth2.server.resource.autoconfigure.reactive.ReactiveOAuth2ResourceServerAutoConfiguration",
+        "org.springframework.boot.security.oauth2.server.resource.autoconfigure.web.reactive.ReactiveOAuth2ResourceServerWebSecurityAutoConfiguration" })
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
 @ConditionalOnClass({ ReactiveJwtDecoder.class, SecurityWebFilterChain.class, ServerHttpSecurity.class, Mono.class })
 @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "enabled", havingValue = "true",
@@ -92,7 +92,7 @@ public class EntraReactiveSecurityAutoConfiguration {
                 graph.getScope(), graph.getMaxPages(), properties.getHttp().getReadTimeout(),
                 observations.getIfAvailable(() -> EntraSecurityObservations.NO_OP));
         return new CachingReactiveGroupMembershipResolver(graphResolver, graph.getCacheTtl(),
-                graph.getCacheMaxEntries());
+                graph.getCacheMaxEntries(), java.time.Clock.systemUTC(), properties.getCache().isBounded());
     }
 
     /**
@@ -119,8 +119,8 @@ public class EntraReactiveSecurityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ServerProblemDetailsWriter entraServerProblemDetailsWriter(ObjectProvider<ObjectMapper> objectMapper) {
-        return new ServerProblemDetailsWriter(objectMapper.getIfAvailable(ObjectMapper::new));
+    public ServerProblemDetailsWriter entraServerProblemDetailsWriter(ObjectProvider<JsonMapper> jsonMapper) {
+        return new ServerProblemDetailsWriter(jsonMapper.getIfAvailable(JsonMapper::new));
     }
 
     @Bean
@@ -168,7 +168,7 @@ public class EntraReactiveSecurityAutoConfiguration {
     static class EntraSecurityWebFilterChainConfiguration {
 
         @Bean
-        @Order(SecurityProperties.BASIC_AUTH_ORDER)
+        @Order(EntraSecurityOrders.FILTER_CHAIN)
         SecurityWebFilterChain entraSecurityWebFilterChain(ServerHttpSecurity http,
                 EntraServerHttpSecurity entraServerHttpSecurity) {
             return entraServerHttpSecurity.configure(http).build();
@@ -176,7 +176,8 @@ public class EntraReactiveSecurityAutoConfiguration {
     }
 
     /**
-     * Enables {@code @PreAuthorize}/{@code @PostAuthorize} and {@code @Secured} on reactive methods by default.
+     * Enables {@code @PreAuthorize}/{@code @PostAuthorize}, {@code @Secured} and {@code @RolesAllowed} on
+     * reactive methods by default.
      */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnProperty(prefix = EntraSecurityProperties.PREFIX, name = "method-security.enabled",

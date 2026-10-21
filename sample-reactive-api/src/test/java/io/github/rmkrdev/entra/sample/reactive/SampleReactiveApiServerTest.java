@@ -5,6 +5,7 @@ import static io.github.rmkrdev.entra.security.test.EntraWebTestClient.bearer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -24,6 +25,7 @@ import io.github.rmkrdev.entra.security.test.EntraTestTokens;
         "entra.security.credential.type=client-secret",
         "entra.security.credential.client-secret=test-secret" })
 @AutoConfigureEntraMockAuthority
+@AutoConfigureWebTestClient
 class SampleReactiveApiServerTest {
 
     static final String READERS = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";

@@ -3,9 +3,9 @@
 [![CI](https://github.com/rmkr-dev/spring-security-jwt-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/rmkr-dev/spring-security-jwt-starter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A Spring Boot 3 security starter (Java 17 and 21, MVC and WebFlux) for **Microsoft Entra ID**. It validates user
-and service tokens, maps groups and app roles to `@Secured` roles, and calls downstream APIs as the service or on
-behalf of the user.
+A Spring Boot 4.1 security starter (Java 17, 21 and 25, MVC and WebFlux) for **Microsoft Entra ID**. It validates
+user and service tokens, maps groups and app roles to `@Secured` roles, and calls downstream APIs as the service
+or on behalf of the user.
 
 ```mermaid
 flowchart LR
@@ -26,7 +26,7 @@ flowchart LR
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-spring-boot-starter</artifactId>
-    <version>0.7.0</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -52,7 +52,7 @@ Every path except health and info now needs a valid Entra token. Missing tokens 
 
 | Java | Spring Boot | Web stack |
 | --- | --- | --- |
-| 17, 21 | 3.3.x, 3.4.x, 3.5.x | Spring MVC and WebFlux |
+| 17, 21, 25 | 4.1.x | Spring MVC and WebFlux |
 
 Each line is built and tested in CI. Details and the exact patches are in
 [docs/compatibility.md](docs/compatibility.md).

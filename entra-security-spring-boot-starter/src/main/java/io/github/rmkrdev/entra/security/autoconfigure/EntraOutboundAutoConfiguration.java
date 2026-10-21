@@ -64,12 +64,12 @@ public class EntraOutboundAutoConfiguration {
     /** Adds the outbound routes to Spring Boot's {@code RestClient.Builder}. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = { "org.springframework.web.client.RestClient",
-            "org.springframework.boot.web.client.RestClientCustomizer" })
+            "org.springframework.boot.restclient.RestClientCustomizer" })
     @ConditionalOnExpression("${entra.security.outbound.customize-builders:true}")
     static class RestClientRoutingConfiguration {
 
         @Bean
-        org.springframework.boot.web.client.RestClientCustomizer entraOutboundRoutingRestClientCustomizer(
+        org.springframework.boot.restclient.RestClientCustomizer entraOutboundRoutingRestClientCustomizer(
                 EntraOutboundClients outbound) {
             return builder -> {
                 if (outbound.hasRoutes()) {
@@ -82,12 +82,12 @@ public class EntraOutboundAutoConfiguration {
     /** Adds the outbound routes to Spring Boot's {@code WebClient.Builder}. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = { "org.springframework.web.reactive.function.client.WebClient",
-            "org.springframework.boot.web.reactive.function.client.WebClientCustomizer" })
+            "org.springframework.boot.webclient.WebClientCustomizer" })
     @ConditionalOnExpression("${entra.security.outbound.customize-builders:true}")
     static class WebClientRoutingConfiguration {
 
         @Bean
-        org.springframework.boot.web.reactive.function.client.WebClientCustomizer
+        org.springframework.boot.webclient.WebClientCustomizer
                 entraOutboundRoutingWebClientCustomizer(EntraOutboundClients outbound) {
             return builder -> {
                 if (outbound.hasRoutes()) {

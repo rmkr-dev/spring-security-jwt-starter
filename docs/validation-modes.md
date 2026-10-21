@@ -71,3 +71,34 @@ entra:
   claims. `claims-mapping` renames fields: by default `scope` → `scp` and `client_id` → `azp`. For userinfo,
   `id` → `oid`, `userPrincipalName` → `preferred_username` and `displayName` → `name`.
 - Each call is timed as `entra.security.introspection.requests{result}`.
+
+## Rejecting ID tokens
+
+`entra.security.validation.reject-id-tokens` is **off** by default. The default audiences include both
+`api://{client-id}` and the raw `{client-id}`, and an Entra ID token's `aud` is that client id. With the flag
+off, an ID token that satisfies issuer, audience, tenant and time checks is accepted and classified from its
+claims.
+
+```mermaid
+flowchart TD
+    T[Bearer token] --> F{validation.reject-id-tokens}
+    F -- false --> K[Signature and claim checks only]
+    F -- true --> C{idtyp, scp or roles?}
+    C -- yes --> K
+    C -- no --> R["401 reason=not_access_token"]
+    K --> M[Classify user or service]
+```
+
+Turn it on when this API must accept access tokens only:
+
+```yaml
+entra:
+  security:
+    validation:
+      reject-id-tokens: true
+```
+
+A token passes when it has `idtyp`, a non-empty `scp`, or a non-empty `roles`. Delegated access tokens have
+`scp`. App-only access tokens have `roles` and usually `idtyp=app`. An ID token has none of those, so it is
+rejected. An access token whose `aud` is the client id still passes. The audit reason is `not_access_token`.
+The same check runs on JWKS validation and on RFC 7662 results when `validate-claims` is true.

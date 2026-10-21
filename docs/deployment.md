@@ -97,10 +97,24 @@ entra:
 - Upload the new certificate's public part to the app registration **before** rotating it in Key Vault.
 - If the Azure SDK is missing, startup fails and names the dependencies to add.
 
+## Native image
+
+```mermaid
+flowchart LR
+    B["mvn -Pnative or process-aot"] --> H[EntraSecurityRuntimeHints]
+    H --> I[AutoConfiguration.imports<br/>Nimbus services<br/>health and JsonMapper reflection]
+    I --> N[Native image of your API]
+```
+
+The starter registers those hints on its auto-configuration. A native build of the service picks them up. No
+extra property turns the hints on. Details are in [compatibility.md](compatibility.md).
+
 ## Health
 
-Add `spring-boot-starter-actuator`. Both indicators are part of the readiness group, not liveness, so an Entra
-outage stops traffic without restarting pods.
+Add `spring-boot-starter-actuator`. Servlet applications get blocking indicators. WebFlux applications get the
+reactive indicators, and the JWKS and Graph probes run on `boundedElastic`. Both are part of the readiness
+group, not liveness, so an Entra outage stops traffic without restarting pods. Boot 4 turns liveness and
+readiness on by default; `public-paths` already includes `/actuator/health/**`, so the probes stay anonymous.
 
 | Component | Registered when | DOWN when |
 | --- | --- | --- |

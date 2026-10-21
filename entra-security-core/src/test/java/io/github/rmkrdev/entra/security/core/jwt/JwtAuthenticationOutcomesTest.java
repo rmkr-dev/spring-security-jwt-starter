@@ -71,6 +71,8 @@ class JwtAuthenticationOutcomesTest {
         assertThat(JwtAuthenticationOutcomes.reason(
                 new InvalidBearerTokenException("The calling client application is not allowed to call this API")))
                 .isEqualTo(JwtAuthenticationOutcomes.CLIENT_NOT_ALLOWED);
+        assertThat(JwtAuthenticationOutcomes.reason(new JwtException(EntraAccessTokenValidator.DESCRIPTION)))
+                .isEqualTo(JwtAuthenticationOutcomes.NOT_ACCESS_TOKEN);
         assertThat(JwtAuthenticationOutcomes.reason(new JwtException("something unexpected")))
                 .isEqualTo(JwtAuthenticationOutcomes.INVALID_TOKEN);
         assertThat(JwtAuthenticationOutcomes.isKnown("oid-value")).isFalse();

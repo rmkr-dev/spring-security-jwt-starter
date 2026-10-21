@@ -17,11 +17,13 @@ flowchart LR
 <dependency>
     <groupId>io.github.rmkr-dev</groupId>
     <artifactId>entra-security-spring-boot-starter</artifactId>
-    <version>0.7.0</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
-Alongside `spring-boot-starter-web`, or `spring-boot-starter-webflux` for a reactive service. Releases are
+Alongside `spring-boot-starter-webmvc`, or `spring-boot-starter-webflux` for a reactive service. A service that
+injects `RestClient.Builder` also adds `spring-boot-starter-restclient`; one that injects `WebClient.Builder`
+adds `spring-boot-starter-webclient`. Releases are
 published to GitHub Packages; [releasing.md](releasing.md) shows the repository and token setup. To build from
 source instead, run `mvn install` in this repository.
 
