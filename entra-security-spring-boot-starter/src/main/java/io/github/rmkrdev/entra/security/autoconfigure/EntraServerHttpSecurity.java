@@ -24,7 +24,8 @@ import reactor.core.publisher.Mono;
 /**
  * Applies the Entra defaults to a WebFlux {@link ServerHttpSecurity}: stateless, CSRF off, public paths open,
  * everything else authenticated with an Entra bearer token, and JSON problem details for 401/403. The
- * reactive counterpart of {@link EntraHttpSecurity}.
+ * reactive counterpart of {@link EntraHttpSecurity}. CSRF stays off because a browser does not attach
+ * {@code Authorization} on a cross-site request and this chain has no session cookie.
  * <p>
  * The starter uses it for its default {@code SecurityWebFilterChain}. Services that define their own chain
  * can reuse it:
@@ -77,6 +78,7 @@ public class EntraServerHttpSecurity {
             http.addFilterBefore(timing.startFilter(), SecurityWebFiltersOrder.AUTHENTICATION)
                     .addFilterAfter(timing.endFilter(), SecurityWebFiltersOrder.AUTHORIZATION);
         }
+        // codeql[java/spring-disabled-csrf-protection] Stateless bearer-token chain; no session cookie.
         http.csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .cors(Customizer.withDefaults())
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())

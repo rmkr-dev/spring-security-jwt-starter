@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- The default servlet and WebFlux chains keep CSRF disabled. Code scanning accepts that because
+  authentication is a bearer token on a stateless chain, with no session cookie for a browser to
+  attach on a cross-site request.
+
 ### Added
 
 - Pull request workflow `.github/workflows/pr-validation.yml`. The **PR validation** job fails unless
