@@ -4,13 +4,35 @@ The starter is built on Spring Boot 4.1. The version pinned in the root `pom.xml
 
 ```mermaid
 flowchart LR
-    PR[Pull request / push to main] --> B["mvn verify<br/>Boot 4.1.1 (pinned)<br/>Java 17, 21 and 25"]
-    PR --> R["Release build check<br/>Boot 4.1.1, Java 17<br/>sources, Javadoc, SBOM"]
+    PR[Pull request] --> V["PR validation<br/>verify Java 17, 21, 25"]
+    PR --> P[Sources, Javadoc, SBOM]
+    PR --> D[Dependency review]
+    PR --> H[Hygiene and workflow lint]
+    V --> G[PR validation gate]
+    P --> G
+    D --> G
+    H --> G
+    M[Push to main] --> C["CI mvn verify<br/>Java 17, 21 and 25"]
 ```
 
 ## Tested versions
 
-The build runs unit tests, the MVC and WebFlux sample applications, and the coverage gate.
+A pull request runs `.github/workflows/pr-validation.yml`. The job named **PR validation** is the one to
+require in branch protection. It stays green only when every check below succeeded:
+
+| Check | What a failure means |
+| --- | --- |
+| `verify` on Java 17, 21 and 25 | Compile warnings, tests, JaCoCo minimums, or the Maven enforcer rules failed. The enforcer requires dependency convergence, upper-bound dependency versions, and no duplicate dependency declarations. |
+| Sources, Javadoc and SBOM | The release profile cannot produce the jars a tag would publish. |
+| Dependency review | The pull request adds or bumps a dependency with a moderate or higher known vulnerability. |
+| Hygiene and workflow lint | Wildcard import or `printStackTrace` under `src/main`, private key material outside tests, an AWS key id, `pull_request_target`, or an invalid workflow file. |
+
+`mvn -B verify` locally runs the same compiler, test, coverage and enforcer rules as the verify job.
+Compiler warnings fail that build (`failOnWarning`).
+
+A push to `main` re-runs `mvn verify` in the CI workflow. CodeQL still analyses every pull request.
+
+### Pinned line
 
 | Spring Boot | Tested patch | Spring Framework | Spring Security | Jackson | Java |
 | --- | --- | --- | --- | --- | --- |
