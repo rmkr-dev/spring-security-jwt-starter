@@ -23,6 +23,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Spring Boot version check (`EntraSpringBootVersionCheck`), registered as an `ApplicationContextInitializer` so it
+  runs before any auto-configuration. On Spring Boot 3.x or 4.0 startup stops with one message that names the
+  running version and points to 0.7.x, instead of a `ClassNotFoundException` from the auto-configuration. A newer,
+  untested line logs one WARN. `entra.security.self-check.spring-boot-version=false` turns it off.
+- `docs/upgrading.md`: moving a service from 0.7.x (Spring Boot 3) to 1.0 (Spring Boot 4.1), moved imports and
+  behaviour changes.
 - AOT runtime hints (`EntraSecurityRuntimeHints`) for the auto-configuration imports, Nimbus JOSE, the health
   indicators and `JsonMapper`.
 - `entra.security.validation.reject-id-tokens` (default `false`). When `true`, a token must carry `idtyp`,
@@ -33,9 +39,6 @@ All notable changes to this project are documented here. The format follows
   the flag is on, `tid` must be one of those directory GUIDs (a GUID `tenant-id` is included), issuers are
   built per directory, and the JWKS URI defaults to the common keys endpoint. `consumers` stays unsupported.
   Leave the flag off for a single-tenant API.
-
-### Added
-
 - Release publishing. A `release` Maven profile adds sources and Javadoc jars and a CycloneDX SBOM per module.
   The new `Release` workflow runs on `v*` tags (or by hand for an existing tag, with a dry-run option): it checks
   that the tag matches the project version, builds and tests with the profile, deploys the parent, core, starter
@@ -43,8 +46,11 @@ All notable changes to this project are documented here. The format follows
 - CI job `Release build check` runs `mvn -Prelease package` on every pull request, so Javadoc or packaging
   problems surface before a tag.
 - `docs/releasing.md`: installing from GitHub Packages and cutting a release, with a diagram.
-- Spring Boot 3.3 and 3.4 compatibility jobs are not part of this line. `docs/compatibility.md` lists Boot 4.1.1
-  on Java 17, 21 and 25.
+
+### Removed
+
+- The Spring Boot 3.3 and 3.4 CI compatibility jobs. `docs/compatibility.md` lists Boot 4.1.1 on Java 17, 21
+  and 25.
 
 ## [0.7.0] - 2026-10-19
 

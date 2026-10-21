@@ -179,6 +179,7 @@ With `multi-tenant.enabled=false`, `tenant-id` must be one directory GUID. `comm
 | `monitoring.tags` | - | Extra tags added to every `entra.security.*` meter, e.g. `service=orders-api`. |
 | `observability.server-timing` | `true` | Add `Server-Timing: auth;dur=<ms>` to every authenticated response. The authentication time is always recorded as the `entra.security.auth.duration` timer; this switch only controls the header. |
 | **Startup and CAE** | | |
+| `self-check.spring-boot-version` | `true` | Stops startup on a Spring Boot line older than 4.1 and logs one WARN on a newer, untested line. Runs before auto-configuration, independent of `self-check.mode`. See [upgrading.md](upgrading.md#spring-boot-version-check). |
 | `self-check.mode` | `warn` | `warn` logs each problem, `fail` stops startup, `off` skips the check. Checks GUID formats, that an audience is set, that the JWKS or introspection endpoint answers, and that outbound clients have a credential. |
 | `cae.enabled` | `false` | Declare the `cp1` client capability on outbound token requests, answer a downstream `insufficient_claims` challenge once with a fresh token, and render `ClaimsChallengeException` as a claims challenge for callers whose token has `xms_cc=cp1`. The library never ends a session on its own. |
 

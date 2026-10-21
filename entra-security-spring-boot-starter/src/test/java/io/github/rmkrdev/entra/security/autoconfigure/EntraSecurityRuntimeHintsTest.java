@@ -21,6 +21,7 @@ class EntraSecurityRuntimeHintsTest {
                 "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports")).accepts(hints);
         assertThat(RuntimeHintsPredicates.reflection().onType(EntraSecurityAutoConfiguration.class)).accepts(hints);
         assertThat(RuntimeHintsPredicates.reflection().onType(RSAKey.class)).accepts(hints);
+        assertThat(RuntimeHintsPredicates.reflection().onType(EntraSpringBootVersionCheck.class)).accepts(hints);
         assertThat(RuntimeHintsPredicates.reflection().onType(EntraJwksReactiveHealthIndicator.class)).accepts(hints);
     }
 }

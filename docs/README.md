@@ -32,6 +32,7 @@ flowchart LR
 | [troubleshooting.md](troubleshooting.md) | 401/403 reasons, self-check messages, outbound and health problems |
 | [releasing.md](releasing.md) | Installing from GitHub Packages, release files and SBOM, cutting a release |
 | [compatibility.md](compatibility.md) | Supported Java and Spring Boot versions and how each is tested |
+| [upgrading.md](upgrading.md) | Moving a service from 0.7.x (Boot 3) to 1.0 (Boot 4.1), and the Spring Boot version check |
 
 Every page has its diagram inline as Mermaid. Rendered SVG and PNG copies are in [diagrams/](diagrams/), named
 `<page>-<n>`. To regenerate them, run `scripts/render-diagrams.sh` (it needs Node and uses

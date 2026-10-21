@@ -63,7 +63,7 @@ Each line is built and tested in CI. Details and the exact patches are in
 - [Service-to-service](docs/service-to-service.md) · [On-behalf-of](docs/on-behalf-of.md) · [Validation modes](docs/validation-modes.md)
 - [Configuration reference](docs/configuration.md) · [Onboarding in Entra](docs/onboarding.md) · [Deployment on AKS](docs/deployment.md)
 - [Observability and auth timing](docs/observability.md) · [Role patterns](docs/role-patterns.md) · [Performance](docs/performance.md)
-- [CAE](docs/cae.md) · [Testing](docs/testing.md) · [Troubleshooting](docs/troubleshooting.md) · [Releases](docs/releasing.md) · [Compatibility](docs/compatibility.md)
+- [CAE](docs/cae.md) · [Testing](docs/testing.md) · [Troubleshooting](docs/troubleshooting.md) · [Releases](docs/releasing.md) · [Compatibility](docs/compatibility.md) · [Upgrading from 0.7.x](docs/upgrading.md)
 
 ## Building
 

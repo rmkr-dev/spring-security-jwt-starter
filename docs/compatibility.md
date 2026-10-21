@@ -43,10 +43,14 @@ New services should use the names in the table. The starter itself depends on
 
 - **Spring Boot 3.x.** 3.5.16 was the last 3.5 patch, and open-source support for 3.5 ended on 30 June 2026.
   Spring asks library authors not to support Boot 3 and Boot 4 from one artifact. Stay on entra-security
-  `0.7.x` for a Boot 3.5 service.
+  `0.7.x` for a Boot 3.5 service, or follow [upgrading.md](upgrading.md).
 - **Spring Boot 4.0.** 4.1 moved the OAuth2 resource-server auto-configuration again
   (`org.springframework.boot.security.oauth2.server.resource.autoconfigure`). This line is compiled against 4.1.1.
 - **Spring Boot 4.2.** Not generally available yet. The pin moves when a 4.1 patch or the next GA line is adopted.
+
+On Spring Boot 3.x or 4.0 the starter stops startup with one clear message instead of a `ClassNotFoundException`
+from the auto-configuration. A newer line logs a WARN. `entra.security.self-check.spring-boot-version=false`
+turns the check off.
 
 ## Native image
 
