@@ -102,18 +102,46 @@ jobs:
   dependencies:
     name: Dependency review
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: write
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
-
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
         with:
-          fail-on-severity: moderate
-          comment-summary-in-pr: on-failure
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # GitHub dependency review needs the dependency graph, which is not enabled for this
+      # repository. Compare release-profile SBOMs and query OSV for packages the pull request adds.
+      - name: Review dependency changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          cp .github/scripts/dependency-review.py /tmp/dependency-review.py
+          collect_boms() {
+            dest="$1"
+            rm -rf "${dest}"
+            mkdir -p "${dest}"
+            find . -path '*/target/bom.json' -print0 > /tmp/bom-list
+            while IFS= read -r -d '' bom; do
+              rel="${bom#./}"
+              mkdir -p "${dest}/$(dirname "${rel}")"
+              cp "${bom}" "${dest}/${rel}"
+            done < /tmp/bom-list
+          }
+          git checkout --detach "${BASE_SHA}"
+          mvn -B -ntp -Prelease -DskipTests cyclonedx:makeBom -DoutputFormat=json -DoutputName=bom
+          collect_boms /tmp/sbom-base
+          git checkout --detach "${HEAD_SHA}"
+          mvn -B -ntp -Prelease -DskipTests clean cyclonedx:makeBom -DoutputFormat=json -DoutputName=bom
+          collect_boms /tmp/sbom-head
+          python3 /tmp/dependency-review.py /tmp/sbom-base /tmp/sbom-head
 
   hygiene:
     name: Hygiene and workflow lint
@@ -126,7 +154,7 @@ jobs:
         run: python3 .github/scripts/pr-hygiene.py
 
       - name: Install actionlint
-        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
 
       - name: Lint GitHub Actions workflows
         run: ./actionlint -color

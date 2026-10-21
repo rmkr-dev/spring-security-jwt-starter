@@ -24,7 +24,7 @@ require in branch protection. It stays green only when every check below succeed
 | --- | --- |
 | `verify` on Java 17, 21 and 25 | Compile warnings, tests, JaCoCo minimums, or the Maven enforcer rules failed. The enforcer requires dependency convergence, upper-bound dependency versions, and no duplicate dependency declarations. |
 | Sources, Javadoc and SBOM | The release profile cannot produce the jars a tag would publish. |
-| Dependency review | The pull request adds or bumps a dependency with a moderate or higher known vulnerability. |
+| Dependency review | A dependency added or upgraded by the pull request has a moderate or higher known vulnerability. The job builds a CycloneDX SBOM at the base commit and at the head commit, then queries OSV. |
 | Hygiene and workflow lint | Wildcard import or `printStackTrace` under `src/main`, private key material outside tests, an AWS key id, `pull_request_target`, or an invalid workflow file. |
 
 `mvn -B verify` locally runs the same compiler, test, coverage and enforcer rules as the verify job.
