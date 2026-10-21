@@ -130,6 +130,7 @@
                     <configuration>
                         <release>${maven.compiler.release}</release>
                         <parameters>true</parameters>
+                        <failOnWarning>true</failOnWarning>
                         <compilerArgs>
                             <arg>-Xlint:all,-processing,-serial,-options</arg>
                         </compilerArgs>
@@ -194,6 +195,9 @@
                                 <requireMavenVersion>
                                     <version>[3.8.6,)</version>
                                 </requireMavenVersion>
+                                <dependencyConvergence/>
+                                <requireUpperBoundDeps/>
+                                <banDuplicatePomDependencyVersions/>
                             </rules>
                         </configuration>
                     </execution>

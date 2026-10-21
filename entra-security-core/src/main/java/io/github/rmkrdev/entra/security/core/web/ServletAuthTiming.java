@@ -99,6 +99,7 @@ public final class ServletAuthTiming {
     }
 
     /** Records an unauthenticated decision before {@code delegate} writes the 401. */
+    @SuppressWarnings("overloads")
     public AuthenticationEntryPoint wrap(AuthenticationEntryPoint delegate) {
         return (request, response, exception) -> {
             completeNow(request, response, AuthDecision.UNAUTHENTICATED, AuthDecisionRecorder.reason(exception),
@@ -108,6 +109,7 @@ public final class ServletAuthTiming {
     }
 
     /** Records a forbidden decision before {@code delegate} writes the 403. */
+    @SuppressWarnings("overloads")
     public AccessDeniedHandler wrap(AccessDeniedHandler delegate) {
         return (request, response, exception) -> {
             completeNow(request, response, AuthDecision.FORBIDDEN, "access_denied", current());

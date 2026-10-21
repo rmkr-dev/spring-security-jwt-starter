@@ -2,15 +2,13 @@ package io.github.rmkrdev.entra.security.test.reactive;
 
 import static io.github.rmkrdev.entra.security.test.EntraWebTestClient.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.startsWith;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,13 +73,13 @@ class ReactiveMockAuthorityIntegrationTest {
     void authTimingIsReturnedAsServerTiming() {
         client.get().uri("/orders").headers(bearer(tokens.user().groups(READERS))).exchange()
                 .expectStatus().isOk()
-                .expectHeader().value("Server-Timing", startsWith("auth;dur="));
+                .expectHeader().valueMatches("Server-Timing", "auth;dur=.*");
         client.get().uri("/orders").exchange()
                 .expectStatus().isUnauthorized()
-                .expectHeader().value("Server-Timing", startsWith("auth;dur="));
+                .expectHeader().valueMatches("Server-Timing", "auth;dur=.*");
         client.get().uri("/admin").headers(bearer(tokens.user().groups(READERS))).exchange()
                 .expectStatus().isForbidden()
-                .expectHeader().value("Server-Timing", startsWith("auth;dur="));
+                .expectHeader().valueMatches("Server-Timing", "auth;dur=.*");
         client.get().uri("/public/ping").exchange()
                 .expectStatus().isOk()
                 .expectHeader().doesNotExist("Server-Timing");
@@ -91,7 +89,7 @@ class ReactiveMockAuthorityIntegrationTest {
     void missingTokenIs401ProblemJson() {
         client.get().uri("/orders").exchange()
                 .expectStatus().isUnauthorized()
-                .expectHeader().value("WWW-Authenticate", startsWith("Bearer"))
+                .expectHeader().valueMatches("WWW-Authenticate", "Bearer.*")
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.status").isEqualTo(401)
@@ -104,7 +102,7 @@ class ReactiveMockAuthorityIntegrationTest {
     void malformedTokenIs401InvalidToken() {
         client.get().uri("/orders").headers(bearer("not-a-jwt")).exchange()
                 .expectStatus().isUnauthorized()
-                .expectHeader().value("WWW-Authenticate", containsString("invalid_token"))
+                .expectHeader().valueMatches("WWW-Authenticate", ".*invalid_token.*")
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("invalid_token");
     }
@@ -147,7 +145,7 @@ class ReactiveMockAuthorityIntegrationTest {
     void userWithoutRoleIs403ProblemJson() {
         client.get().uri("/admin").headers(bearer(tokens.user().groups(READERS))).exchange()
                 .expectStatus().isForbidden()
-                .expectHeader().value("WWW-Authenticate", containsString("insufficient_scope"))
+                .expectHeader().valueMatches("WWW-Authenticate", ".*insufficient_scope.*")
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.status").isEqualTo(403)
@@ -182,7 +180,9 @@ class ReactiveMockAuthorityIntegrationTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.groups[0]").isEqualTo("cccccccc-0000-0000-0000-000000000003")
-                .jsonPath("$.roles").value(hasItem("ROLE_ORDERS_READ"));
+                .jsonPath("$.roles").value(roles -> assertThat(roles)
+                        .asInstanceOf(InstanceOfAssertFactories.list(String.class))
+                        .contains("ROLE_ORDERS_READ"));
         assertThat(authority.graphRequests()).isEqualTo(1);
     }
 
@@ -223,7 +223,9 @@ class ReactiveMockAuthorityIntegrationTest {
                 .jsonPath("$.oid").isEqualTo("a0a0a0a0-0000-4000-8000-0000000000bb")
                 .jsonPath("$.appId").isEqualTo(EntraTestTokens.USER_CLIENT_APP_ID)
                 .jsonPath("$.version").isEqualTo("2.0")
-                .jsonPath("$.roles").value(hasItem("ROLE_ORDERS_READ"));
+                .jsonPath("$.roles").value(roles -> assertThat(roles)
+                        .asInstanceOf(InstanceOfAssertFactories.list(String.class))
+                        .contains("ROLE_ORDERS_READ"));
         client.get().uri("/me/mono").headers(bearer(user)).exchange()
                 .expectBody(String.class).isEqualTo("a0a0a0a0-0000-4000-8000-0000000000bb");
         client.get().uri("/me/current").headers(bearer(user)).exchange()

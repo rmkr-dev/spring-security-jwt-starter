@@ -75,7 +75,7 @@ jobs:
                "${module}/target/${module}-${VERSION}-javadoc.jar" dist/
             cp "${module}/target/bom.json" "dist/${module}-${VERSION}-sbom.cdx.json"
           done
-          (cd dist && sha256sum * > SHA256SUMS)
+          (cd dist && sha256sum -- * > SHA256SUMS)
           ls -l dist
 
       - name: Attach files to the GitHub release
@@ -86,7 +86,7 @@ jobs:
           if ! gh release view "${TAG}" > /dev/null 2>&1; then
             gh release create "${TAG}" --verify-tag --title "${TAG}" --notes "See CHANGELOG.md for details."
           fi
-          gh release upload "${TAG}" dist/* --clobber
+          gh release upload "${TAG}" --clobber -- dist/*
 
       - name: Keep the files as a build artifact
         uses: actions/upload-artifact@v7

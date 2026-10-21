@@ -17,6 +17,7 @@ public class EntraAuthenticationToken extends AbstractOAuth2TokenAuthenticationT
 
     private final EntraPrincipal entraPrincipal;
 
+    @SuppressWarnings("this-escape") // setAuthenticated is defined on the superclass
     public EntraAuthenticationToken(Jwt jwt, EntraPrincipal principal,
             Collection<? extends GrantedAuthority> authorities) {
         super(jwt, principal, jwt, authorities);

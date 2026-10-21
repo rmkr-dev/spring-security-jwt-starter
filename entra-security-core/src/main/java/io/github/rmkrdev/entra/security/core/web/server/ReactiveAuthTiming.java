@@ -81,6 +81,7 @@ public final class ReactiveAuthTiming {
     }
 
     /** Records an unauthenticated decision before {@code delegate} writes the 401. */
+    @SuppressWarnings("overloads")
     public ServerAuthenticationEntryPoint wrap(ServerAuthenticationEntryPoint delegate) {
         return (exchange, exception) -> Mono.defer(() -> {
             completeNow(exchange, AuthDecision.UNAUTHENTICATED, AuthDecisionRecorder.reason(exception), null);
@@ -89,6 +90,7 @@ public final class ReactiveAuthTiming {
     }
 
     /** Records a forbidden decision before {@code delegate} writes the 403. */
+    @SuppressWarnings("overloads")
     public ServerAccessDeniedHandler wrap(ServerAccessDeniedHandler delegate) {
         return (exchange, denied) -> current().flatMap(authentication -> {
             completeNow(exchange, AuthDecision.FORBIDDEN, "access_denied", authentication.orElse(null));

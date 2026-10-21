@@ -2,10 +2,10 @@ package io.github.rmkrdev.entra.sample.reactive;
 
 import static io.github.rmkrdev.entra.security.test.EntraWebTestClient.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.hasItem;
 
 import java.util.Map;
 
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
@@ -99,8 +99,10 @@ class SampleReactiveApiApplicationTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.objectId").isEqualTo(oid)
-                .jsonPath("$.groups").value(hasItem(READERS))
-                .jsonPath("$.roles").value(hasItem("ROLE_ORDERS_READ"));
+                .jsonPath("$.groups").value(groups -> assertThat(groups)
+                        .asInstanceOf(InstanceOfAssertFactories.list(String.class)).contains(READERS))
+                .jsonPath("$.roles").value(roles -> assertThat(roles)
+                        .asInstanceOf(InstanceOfAssertFactories.list(String.class)).contains("ROLE_ORDERS_READ"));
     }
 
     @Test

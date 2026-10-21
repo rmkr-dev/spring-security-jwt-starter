@@ -2,8 +2,6 @@ package io.github.rmkrdev.entra.security.test.obo;
 
 import static io.github.rmkrdev.entra.security.test.EntraWebTestClient.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.startsWith;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -78,7 +76,7 @@ class OnBehalfOfReactiveIntegrationTest {
                 .exchange()
                 .expectStatus().isForbidden()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectHeader().value("WWW-Authenticate", startsWith("Bearer error=\"consent_required\""))
+                .expectHeader().valueMatches("WWW-Authenticate", "Bearer error=\"consent_required\".*")
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("consent_required")
                 .jsonPath("$.instance").isEqualTo("/profile/downstream-token");
@@ -91,9 +89,9 @@ class OnBehalfOfReactiveIntegrationTest {
         client.get().uri("/profile/downstream-token").headers(bearer(tokens.user().objectId("mfa-" + ALICE)))
                 .exchange()
                 .expectStatus().isForbidden()
-                .expectHeader().value("WWW-Authenticate", containsString("claims=\""))
+                .expectHeader().valueMatches("WWW-Authenticate", ".*claims=\".*")
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("interaction_required")
-                .jsonPath("$.claims").value(containsString("capolids"));
+                .jsonPath("$.claims").value(claims -> assertThat(claims.toString()).contains("capolids"));
     }
 }

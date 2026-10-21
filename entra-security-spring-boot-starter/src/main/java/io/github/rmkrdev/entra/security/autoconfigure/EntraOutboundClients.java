@@ -60,10 +60,11 @@ public class EntraOutboundClients {
      * @param skipHosts hosts that never get a token from the routes
      */
     public EntraOutboundClients(Map<String, Client> clients, List<Route> routes, List<OutboundTarget> skipHosts) {
-        this.clients = Collections.unmodifiableMap(new LinkedHashMap<>(clients));
+        Map<String, Client> registered = Collections.unmodifiableMap(new LinkedHashMap<>(clients));
         for (Route route : routes) {
-            client(route.client());
+            requireClient(registered, route.client());
         }
+        this.clients = registered;
         this.routes = List.copyOf(routes);
         this.skipHosts = List.copyOf(skipHosts);
     }
@@ -208,6 +209,10 @@ public class EntraOutboundClients {
     }
 
     Client client(String name) {
+        return requireClient(clients, name);
+    }
+
+    private static Client requireClient(Map<String, Client> clients, String name) {
         Client client = clients.get(name);
         if (client == null) {
             throw new IllegalArgumentException("No outbound client named '" + name + "' is configured under "

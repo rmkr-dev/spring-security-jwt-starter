@@ -17,9 +17,14 @@ You need Java 17 or newer and Maven 3.8.6 or newer.
 mvn -B verify
 ```
 
-This compiles every module, runs the unit and integration tests and checks coverage. Tests use
-locally generated keys and WireMock, so no Entra tenant or network access is needed. CI runs the same
-command on Java 17 and 21.
+This compiles every module, runs the unit and integration tests and checks coverage. Compiler warnings
+fail the build. The Maven enforcer also requires dependency convergence and upper-bound versions.
+Tests use locally generated keys and WireMock, so no Entra tenant or network access is needed.
+
+Pull requests run `.github/workflows/pr-validation.yml` on Java 17, 21 and 25, plus a release
+packaging check, dependency review, and repository hygiene. Dependency review fails the pull request
+when a newly added or upgraded package has a moderate or higher known vulnerability. The **PR
+validation** job fails if any of those fail. See [docs/compatibility.md](docs/compatibility.md).
 
 ### Coverage
 

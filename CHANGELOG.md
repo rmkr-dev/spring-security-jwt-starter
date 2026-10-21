@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Pull request workflow `.github/workflows/pr-validation.yml`. The **PR validation** job fails unless
+  `mvn verify` passes on Java 17, 21 and 25, the release profile produces sources, Javadoc and an SBOM,
+  dependency review finds no moderate-or-higher vulnerability in a newly added or upgraded dependency,
+  and the hygiene checks pass. Dependency review compares CycloneDX SBOMs and queries OSV.
+  `mvn verify` now fails on compiler warnings and enforces dependency convergence, upper-bound
+  dependencies, and unique dependency declarations.
+
 ### Changed
 
 - Spring Boot 4.1.1 is the build line (Spring Framework 7.0, Spring Security 7.1, Jackson 3.1). Java 17, 21
