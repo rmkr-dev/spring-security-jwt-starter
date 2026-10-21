@@ -58,6 +58,9 @@ Decode the token (locally, never on a public site) and compare `aud`, `iss`, `ti
   `credential.type=client-secret but client-secret is empty`, and
   `credential.type=certificate but no certificate-path or key-vault certificate-name`
 
+`entra-security 1.x needs Spring Boot 4.1.x but this application runs Spring Boot ...` means the service is on
+Spring Boot 3.x or 4.0. Upgrade it or stay on 0.7.x ([upgrading.md](upgrading.md)).
+
 Other startup failures name the property: bad compact mappings, invalid authority URLs, unknown route clients, a
 wrong certificate password, a missing Azure SDK for `key-vault-certificate`.
 

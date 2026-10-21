@@ -2062,12 +2062,26 @@ public class EntraSecurityProperties implements Validator {
          */
         private EntraStartupSelfCheck.Mode mode = EntraStartupSelfCheck.Mode.WARN;
 
+        /**
+         * Stop startup with a clear message when the application runs a Spring Boot line older than 4.1, and log a
+         * WARN on an untested newer line. Runs before auto-configuration, independent of {@code mode}.
+         */
+        private boolean springBootVersion = true;
+
         public EntraStartupSelfCheck.Mode getMode() {
             return mode;
         }
 
         public void setMode(EntraStartupSelfCheck.Mode mode) {
             this.mode = mode;
+        }
+
+        public boolean isSpringBootVersion() {
+            return springBootVersion;
+        }
+
+        public void setSpringBootVersion(boolean springBootVersion) {
+            this.springBootVersion = springBootVersion;
         }
     }
 

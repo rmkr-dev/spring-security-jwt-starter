@@ -23,6 +23,7 @@ public final class EntraSecurityRuntimeHints implements RuntimeHintsRegistrar {
         register(hints, classLoader, EntraSecurityAutoConfiguration.class.getName());
         register(hints, classLoader, EntraReactiveSecurityAutoConfiguration.class.getName());
         register(hints, classLoader, EntraOutboundAutoConfiguration.class.getName());
+        register(hints, classLoader, EntraSpringBootVersionCheck.class.getName());
         register(hints, classLoader, "io.github.rmkrdev.entra.security.autoconfigure.health.EntraHealthAutoConfiguration");
         register(hints, classLoader, "io.github.rmkrdev.entra.security.autoconfigure.health.EntraJwksHealthIndicator");
         register(hints, classLoader, "io.github.rmkrdev.entra.security.autoconfigure.health.EntraJwksReactiveHealthIndicator");

@@ -47,12 +47,12 @@ Each GitHub release also carries the jars, sources and Javadoc jars, a CycloneDX
 ## Cutting a release
 
 1. Open a release PR that sets `<version>` in every `pom.xml`, moves `## [Unreleased]` in `CHANGELOG.md` to the
-   new version and updates the version in the docs. CI runs the tests on Java 17 and 21 and a release build check
+   new version and updates the version in the docs. CI runs the tests on Java 17, 21 and 25 and a release build check
    (`mvn -Prelease package`: sources, Javadoc and SBOM).
 2. Merge it, then tag the merge commit and push the tag:
 
    ```bash
-   git tag -a v0.8.0 -m "v0.8.0" && git push origin v0.8.0
+   git tag -a v1.0.0 -m "v1.0.0" && git push origin v1.0.0
    ```
 
 3. The `Release` workflow checks that the tag matches the project version, runs `mvn -Prelease verify`, deploys
