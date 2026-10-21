@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -28,8 +29,32 @@ public final class AuthenticationCache {
     private final Clock clock;
 
     public AuthenticationCache(Duration ttl, int maxEntries, Clock clock) {
-        this.cache = new TtlCache<>(ttl, maxEntries, clock);
+        this(ttl, maxEntries, clock, false);
+    }
+
+    /**
+     * @param bounded when {@code true}, the cache stays within {@code maxEntries} under concurrency and one
+     *                mapping runs per token
+     */
+    public AuthenticationCache(Duration ttl, int maxEntries, Clock clock, boolean bounded) {
+        this.cache = new TtlCache<>(ttl, maxEntries, clock, bounded);
         this.clock = clock;
+    }
+
+    /** Whether loads of one token are shared and the entry cap is strict. */
+    public boolean isBounded() {
+        return cache.isBounded();
+    }
+
+    /**
+     * Runs {@code load} once per token when this cache is bounded. {@code load} stores the result with
+     * {@link #put} when it should be remembered.
+     */
+    public EntraAuthenticationToken coalesce(Jwt jwt, Supplier<EntraAuthenticationToken> load) {
+        return cache.coalesce(TokenKeys.of(jwt.getTokenValue()), () -> {
+            EntraAuthenticationToken cached = get(jwt);
+            return cached != null ? cached : load.get();
+        });
     }
 
     /** A cached authentication for the token, or {@code null}. */

@@ -4,6 +4,8 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.security.oauth2.core.OAuth2Error;
@@ -75,13 +77,22 @@ public final class EntraValidation {
             return decoder;
         }
         return new CachingJwtDecoder(decoder, ttl, properties.getCache().getValidatedTokenMaxEntries(),
-                properties.getClockSkew(), Clock.systemUTC());
+                properties.getClockSkew(), Clock.systemUTC(), properties.getCache().isBounded());
     }
 
     private static JwtDecoder local(EntraSecurityProperties properties, EntraEndpoints endpoints,
             JWKSource<SecurityContext> jwkSource) {
+        Collection<String> allowedTenants = allowedTenants(properties);
         return EntraJwtDecoders.create(jwkSource, endpoints.issuers(), properties.resolveAudiences(),
-                properties.resolveRequiredTenantId(), properties.getClockSkew());
+                allowedTenants.isEmpty() ? properties.resolveRequiredTenantId() : null, allowedTenants,
+                properties.getValidation().isRejectIdTokens(), properties.getClockSkew());
+    }
+
+    private static Collection<String> allowedTenants(EntraSecurityProperties properties) {
+        if (!properties.getMultiTenant().isEnabled() || !properties.isRequireTenantMatch()) {
+            return List.of();
+        }
+        return properties.resolveAcceptedTenantIds();
     }
 
     /**
@@ -102,7 +113,7 @@ public final class EntraValidation {
         return new CachingTokenIntrospector(delegate, config.getPositiveCacheTtl(), config.getNegativeCacheTtl(),
                 config.getCacheMaxEntries(),
                 new IntrospectionCircuitBreaker(config.getFailureThreshold(), config.getOpenDuration(), clock), clock,
-                observations);
+                observations, properties.getCache().isBounded());
     }
 
     /** The configured endpoint, or the discovered or default one for the check type. */
@@ -157,8 +168,10 @@ public final class EntraValidation {
             EntraEndpoints endpoints) {
         Introspection config = properties.getValidation().getIntrospection();
         if (config.getType() == IntrospectionType.RFC7662 && config.isValidateClaims()) {
+            Collection<String> allowedTenants = allowedTenants(properties);
             return EntraJwtDecoders.validator(endpoints.issuers(), properties.resolveAudiences(),
-                    properties.resolveRequiredTenantId(), properties.getClockSkew());
+                    allowedTenants.isEmpty() ? properties.resolveRequiredTenantId() : null, allowedTenants,
+                    properties.getValidation().isRejectIdTokens(), properties.getClockSkew());
         }
         return timestamps(properties.getClockSkew(), Clock.systemUTC());
     }

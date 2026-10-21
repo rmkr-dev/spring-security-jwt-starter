@@ -17,8 +17,8 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtDecoders;
 
@@ -56,7 +56,7 @@ class EntraMockAuthorityTest {
         assertThat(response.statusCode()).isEqualTo(200);
         JsonNode keys = json.readTree(response.body()).path("keys");
         assertThat(keys).hasSize(1);
-        assertThat(keys.get(0).path("kty").asText()).isEqualTo("RSA");
+        assertThat(keys.get(0).path("kty").asString()).isEqualTo("RSA");
         assertThat(keys.get(0).has("d")).as("private part must never be published").isFalse();
         assertThat(get("/contoso.onmicrosoft.com/discovery/keys").statusCode()).isEqualTo(200);
     }
@@ -64,8 +64,8 @@ class EntraMockAuthorityTest {
     @Test
     void servesDiscoveryDocument() throws Exception {
         JsonNode doc = json.readTree(get("/" + TENANT + "/v2.0/.well-known/openid-configuration").body());
-        assertThat(doc.path("issuer").asText()).isEqualTo(authority.issuer(TENANT));
-        assertThat(doc.path("jwks_uri").asText()).isEqualTo(authority.jwkSetUri(TENANT));
+        assertThat(doc.path("issuer").asString()).isEqualTo(authority.issuer(TENANT));
+        assertThat(doc.path("jwks_uri").asString()).isEqualTo(authority.jwkSetUri(TENANT));
     }
 
     @Test
@@ -131,8 +131,8 @@ class EntraMockAuthorityTest {
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(200);
         JsonNode body = json.readTree(response.body());
-        assertThat(body.path("token_type").asText()).isEqualTo("Bearer");
-        Jwt jwt = decoder.decode(body.path("access_token").asText());
+        assertThat(body.path("token_type").asString()).isEqualTo("Bearer");
+        Jwt jwt = decoder.decode(body.path("access_token").asString());
         assertThat(jwt.getClaimAsString("azp")).isEqualTo("caller-app");
         assertThat(jwt.getAudience()).containsExactly(CLIENT);
     }
@@ -157,7 +157,7 @@ class EntraMockAuthorityTest {
                 .header("Authorization", "Bearer x").GET().build();
         JsonNode value = json.readTree(http.send(authorized, HttpResponse.BodyHandlers.ofString()).body()).path("value");
         assertThat(value).hasSize(2);
-        assertThat(value.get(0).path("id").asText()).isEqualTo("g1");
+        assertThat(value.get(0).path("id").asString()).isEqualTo("g1");
     }
 
     @Test
@@ -168,7 +168,7 @@ class EntraMockAuthorityTest {
                 .header("Authorization", "Bearer app-token").GET().build();
         HttpResponse<String> response = http.send(authorized, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(json.readTree(response.body()).path("@odata.context").asText()).contains("$metadata");
+        assertThat(json.readTree(response.body()).path("@odata.context").asString()).contains("$metadata");
         assertThat(authority.graphRequests()).isEqualTo(graphLookups);
     }
 

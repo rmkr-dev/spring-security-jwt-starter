@@ -9,8 +9,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 class ProblemDetailsTest {
 
@@ -27,9 +27,9 @@ class ProblemDetailsTest {
         assertThat(response.getContentType()).startsWith("application/problem+json");
         assertThat(response.getHeader("WWW-Authenticate")).startsWith("Bearer").contains("invalid_token");
         assertThat(body.get("status").asInt()).isEqualTo(401);
-        assertThat(body.get("detail").asText()).isEqualTo("Jwt expired");
-        assertThat(body.get("instance").asText()).isEqualTo("/api/x");
-        assertThat(body.get("error").asText()).isEqualTo("invalid_token");
+        assertThat(body.get("detail").asString()).isEqualTo("Jwt expired");
+        assertThat(body.get("instance").asString()).isEqualTo("/api/x");
+        assertThat(body.get("error").asString()).isEqualTo("invalid_token");
     }
 
     @Test
@@ -39,7 +39,7 @@ class ProblemDetailsTest {
                 response, new InsufficientAuthenticationException("Full authentication is required"));
         assertThat(response.getStatus()).isEqualTo(401);
         assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("Bearer");
-        assertThat(mapper.readTree(response.getContentAsString()).get("title").asText()).isEqualTo("Unauthorized");
+        assertThat(mapper.readTree(response.getContentAsString()).get("title").asString()).isEqualTo("Unauthorized");
     }
 
     @Test
@@ -49,7 +49,7 @@ class ProblemDetailsTest {
                 new AccessDeniedException("Access Denied"));
         JsonNode body = mapper.readTree(response.getContentAsString());
         assertThat(response.getStatus()).isEqualTo(403);
-        assertThat(body.get("title").asText()).isEqualTo("Forbidden");
-        assertThat(body.get("error").asText()).isEqualTo("insufficient_scope");
+        assertThat(body.get("title").asString()).isEqualTo("Forbidden");
+        assertThat(body.get("error").asString()).isEqualTo("insufficient_scope");
     }
 }

@@ -12,7 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The authority endpoints this API uses, resolved once at startup from {@code entra.security.authority.*} (and
@@ -104,7 +104,7 @@ public final class EntraEndpoints {
     }
 
     private static void validateDocument(EntraSecurityProperties properties, URI metadataUri, JsonNode document) {
-        if (!document.hasNonNull("issuer") || document.get("issuer").asText().isBlank()) {
+        if (!document.hasNonNull("issuer") || document.get("issuer").asString().isBlank()) {
             throw new IllegalStateException("the document has no issuer");
         }
         if (!document.hasNonNull("jwks_uri") && properties.getAuthority().getJwksUri() == null
@@ -117,7 +117,7 @@ public final class EntraEndpoints {
             if (document.hasNonNull(field)) {
                 URI uri;
                 try {
-                    uri = URI.create(document.get(field).asText());
+                    uri = URI.create(document.get(field).asString());
                 }
                 catch (IllegalArgumentException ex) {
                     throw new IllegalStateException(field + " is not a valid URL", ex);
@@ -238,26 +238,35 @@ public final class EntraEndpoints {
             this.metadata = new java.util.LinkedHashMap<>();
             document.properties().forEach(field -> {
                 if (field.getValue().isValueNode()) {
-                    metadata.put(field.getKey(), field.getValue().asText());
+                    metadata.put(field.getKey(), field.getValue().asString());
                 }
             });
             if (authority.getIssuers().isEmpty() && properties.getIssuers().isEmpty()) {
-                String issuer = document.get("issuer").asText();
+                String issuer = document.get("issuer").asString();
                 // Entra's multi-tenant documents carry a {tenantid} placeholder.
-                this.issuers = Set.of(issuer.replace("{tenantid}", String.valueOf(properties.getTenantId())));
+                if (properties.getMultiTenant().isEnabled() && !properties.resolveAcceptedTenantIds().isEmpty()) {
+                    Set<String> expanded = new java.util.LinkedHashSet<>();
+                    for (String tenant : properties.resolveAcceptedTenantIds()) {
+                        expanded.add(issuer.replace("{tenantid}", tenant));
+                    }
+                    this.issuers = expanded;
+                }
+                else {
+                    this.issuers = Set.of(issuer.replace("{tenantid}", String.valueOf(properties.getTenantId())));
+                }
             }
             if (authority.getJwksUri() == null && properties.getJwkSetUri() == null && document.hasNonNull("jwks_uri")) {
-                this.jwksUri = URI.create(document.get("jwks_uri").asText());
+                this.jwksUri = URI.create(document.get("jwks_uri").asString());
             }
             if (authority.getTokenEndpoint() == null && document.hasNonNull("token_endpoint")) {
-                this.tokenEndpoint = URI.create(document.get("token_endpoint").asText());
+                this.tokenEndpoint = URI.create(document.get("token_endpoint").asString());
                 this.tokenEndpointCustomized = true;
             }
             if (authority.getAuthorizeEndpoint() == null && document.hasNonNull("authorization_endpoint")) {
-                this.authorizeEndpoint = URI.create(document.get("authorization_endpoint").asText());
+                this.authorizeEndpoint = URI.create(document.get("authorization_endpoint").asString());
             }
             if (authority.getUserinfoEndpoint() == null && document.hasNonNull("userinfo_endpoint")) {
-                this.userinfoEndpoint = URI.create(document.get("userinfo_endpoint").asText());
+                this.userinfoEndpoint = URI.create(document.get("userinfo_endpoint").asString());
             }
             return this;
         }

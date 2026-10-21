@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Spring Boot 4.1.1 is the build line (Spring Framework 7.0, Spring Security 7.1, Jackson 3.1). Java 17, 21
+  and 25 are tested. Spring Boot 3.x stays on the 0.7.x line. Spring Boot 4.0 is not supported: 4.1 moved the
+  OAuth2 resource-server auto-configuration packages again.
+- The library version is 1.0.0.
+- `application/problem+json` is written with the application's Jackson 3 `JsonMapper`.
+- WebFlux method security implements Spring Security 7 `ReactiveAuthorizationManager.authorize`, and
+  `@RolesAllowed` is enforced on methods that return `Mono` or `Flux`.
+- Actuator health uses `spring-boot-health`. WebFlux applications get reactive `entraJwks` and `entraGraph`
+  indicators. Metrics customizers use `spring-boot-micrometer-metrics`.
+- Samples and docs use `spring-boot-starter-webmvc`, `spring-boot-starter-restclient` and
+  `spring-boot-starter-webclient`. `@WithMockEntraUser` needs `spring-boot-starter-security-test`.
+- `WWW-Authenticate` does not include Spring Security 7's `resource_metadata` parameter.
+
+### Added
+
+- AOT runtime hints (`EntraSecurityRuntimeHints`) for the auto-configuration imports, Nimbus JOSE, the health
+  indicators and `JsonMapper`.
+- `entra.security.validation.reject-id-tokens` (default `false`). When `true`, a token must carry `idtyp`,
+  `scp` or `roles`. An ID token whose audience is the client id is rejected with reason `not_access_token`.
+- `entra.security.cache.bounded` (default `false`). When `true`, Entra caches stay within their max entries
+  under concurrency and one load runs per key, including reactive Graph lookups.
+- `entra.security.multi-tenant.enabled` (default `false`) and `entra.security.multi-tenant.tenant-ids`. When
+  the flag is on, `tid` must be one of those directory GUIDs (a GUID `tenant-id` is included), issuers are
+  built per directory, and the JWKS URI defaults to the common keys endpoint. `consumers` stays unsupported.
+  Leave the flag off for a single-tenant API.
+
 ### Added
 
 - Release publishing. A `release` Maven profile adds sources and Javadoc jars and a CycloneDX SBOM per module.
@@ -15,17 +43,8 @@ All notable changes to this project are documented here. The format follows
 - CI job `Release build check` runs `mvn -Prelease package` on every pull request, so Javadoc or packaging
   problems surface before a tag.
 - `docs/releasing.md`: installing from GitHub Packages and cutting a release, with a diagram.
-- Spring Boot compatibility matrix. A new CI job, `Spring Boot compatibility`, builds and tests the whole project
-  on Java 17 against Spring Boot 3.3.13 and 3.4.13, next to the existing 3.5.16 build on Java 17 and 21.
-  `docs/compatibility.md` lists the supported Java, Spring Boot and web stack versions; the README has a short
-  table. Spring Boot 3.2 and older are not supported.
-
-### Fixed
-
-- The starter now compiles and runs on Spring Boot 3.3 (Spring Security 6.3, Spring Framework 6.1). The reactive
-  `@Secured` support implements `ReactiveAuthorizationManager#check`, which every supported Spring Security
-  version has, and the reactive Graph client no longer sets a connector read timeout; the per-page Graph timeout
-  already covers it. Behaviour on 3.4 and 3.5 is unchanged.
+- Spring Boot 3.3 and 3.4 compatibility jobs are not part of this line. `docs/compatibility.md` lists Boot 4.1.1
+  on Java 17, 21 and 25.
 
 ## [0.7.0] - 2026-10-19
 

@@ -8,15 +8,16 @@ import java.time.Duration;
 import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration;
+import org.springframework.boot.http.converter.autoconfigure.HttpMessageConvertersAutoConfiguration;
+import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
+import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,9 +35,9 @@ class EntraObservabilityAutoConfigurationTest {
     private static final String CLIENT = "entra.security.client-id=22222222-2222-2222-2222-222222222222";
 
     private final WebApplicationContextRunner runner = new WebApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class,
+            .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class,
                     EntraHealthAutoConfiguration.class, EntraMetricsAutoConfiguration.class,
-                    SecurityAutoConfiguration.class, UserDetailsServiceAutoConfiguration.class,
+                    SecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class, UserDetailsServiceAutoConfiguration.class,
                     OAuth2ResourceServerAutoConfiguration.class, WebMvcAutoConfiguration.class,
                     JacksonAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class))
             .withUserConfiguration(MetricsConfiguration.class)
@@ -86,8 +87,8 @@ class EntraObservabilityAutoConfigurationTest {
     @Test
     void metricsWithoutARegistryDoNotFailTheContext() {
         new WebApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class,
-                        EntraMetricsAutoConfiguration.class, SecurityAutoConfiguration.class,
+                .withConfiguration(AutoConfigurations.of(EntraSecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class,
+                        EntraMetricsAutoConfiguration.class, SecurityAutoConfiguration.class, ServletWebSecurityAutoConfiguration.class,
                         UserDetailsServiceAutoConfiguration.class, OAuth2ResourceServerAutoConfiguration.class,
                         WebMvcAutoConfiguration.class, JacksonAutoConfiguration.class,
                         HttpMessageConvertersAutoConfiguration.class))
@@ -110,7 +111,7 @@ class EntraObservabilityAutoConfigurationTest {
         }
         assertThat(metadata.getProperty(
                 "io.github.rmkrdev.entra.security.autoconfigure.health.EntraHealthAutoConfiguration.ConditionalOnClass"))
-                .contains("org.springframework.boot.actuate.health.HealthIndicator");
+                .contains("org.springframework.boot.health.contributor.HealthIndicator");
         assertThat(metadata.getProperty(
                 "io.github.rmkrdev.entra.security.autoconfigure.metrics.EntraMetricsAutoConfiguration.ConditionalOnClass"))
                 .contains("io.micrometer.core.instrument.MeterRegistry");

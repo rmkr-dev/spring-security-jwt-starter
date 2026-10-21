@@ -28,8 +28,17 @@ public final class CachingJwtDecoder implements JwtDecoder {
     private final Clock clock;
 
     public CachingJwtDecoder(JwtDecoder delegate, Duration ttl, int maxEntries, Duration clockSkew, Clock clock) {
+        this(delegate, ttl, maxEntries, clockSkew, clock, false);
+    }
+
+    /**
+     * @param bounded when {@code true}, the cache stays within {@code maxEntries} under concurrency and one
+     *                validation runs per token
+     */
+    public CachingJwtDecoder(JwtDecoder delegate, Duration ttl, int maxEntries, Duration clockSkew, Clock clock,
+            boolean bounded) {
         this.delegate = delegate;
-        this.cache = new TtlCache<>(ttl, maxEntries, clock);
+        this.cache = new TtlCache<>(ttl, maxEntries, clock, bounded);
         this.clockSkew = clockSkew == null ? Duration.ZERO : clockSkew;
         this.clock = clock;
     }
@@ -40,6 +49,17 @@ public final class CachingJwtDecoder implements JwtDecoder {
             return delegate.decode(null);
         }
         String key = TokenKeys.of(token);
+        if (cache.isBounded()) {
+            Jwt cached = cache.getIfPresent(key);
+            if (cached != null) {
+                return cached;
+            }
+            return cache.coalesce(key, () -> remember(key, token));
+        }
+        return remember(key, token);
+    }
+
+    private Jwt remember(String key, String token) {
         Jwt cached = cache.getIfPresent(key);
         if (cached != null) {
             return cached;

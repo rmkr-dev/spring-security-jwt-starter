@@ -29,6 +29,8 @@ flowchart TD
 | `unknown_key`, `invalid_signature` | A Graph token (it can't be validated by third parties), a token from another IdP, or the wrong `jwks-uri` | Request a token for this API. Check `authority.jwks-uri`. |
 | `malformed` | Not a JWT. Opaque tokens need a remote check | See [validation-modes.md](validation-modes.md). |
 | `client_not_allowed` | `service.require-known-client=true` and the caller's `azp`/`appid` isn't listed | Add it to `client-role-mappings`. |
+| `not_access_token` | `validation.reject-id-tokens=true` and the token has no `idtyp`, `scp` or `roles` | Send an access token for this API, not an ID token. Leave the flag off only if you intentionally accept ID tokens. |
+| `invalid_tenant` | `tid` is not the configured tenant, or not in `multi-tenant.tenant-ids` when that flag is on | Check `tenant-id`. For several directories set `multi-tenant.enabled=true` and list the GUIDs. |
 
 Decode the token (locally, never on a public site) and compare `aud`, `iss`, `tid`, `ver`, `idtyp`, `scp` and
 `roles` with your configuration.

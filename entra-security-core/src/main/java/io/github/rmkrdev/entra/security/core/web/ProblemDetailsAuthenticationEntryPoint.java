@@ -20,7 +20,18 @@ import jakarta.servlet.http.HttpServletResponse;
  */
 public final class ProblemDetailsAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-    private final BearerTokenAuthenticationEntryPoint bearer = new BearerTokenAuthenticationEntryPoint();
+    private final BearerTokenAuthenticationEntryPoint bearer = bearerEntryPoint();
+
+    /**
+     * Spring Security 7 adds {@code resource_metadata} to {@code WWW-Authenticate} by default. This API does not
+     * publish a protected-resource metadata document, and the reactive entry point does not add the parameter, so
+     * the resolver returns nothing and both stacks keep {@code Bearer}.
+     */
+    private static BearerTokenAuthenticationEntryPoint bearerEntryPoint() {
+        BearerTokenAuthenticationEntryPoint entryPoint = new BearerTokenAuthenticationEntryPoint();
+        entryPoint.setResourceMetadataParameterResolver(request -> null);
+        return entryPoint;
+    }
     private final ProblemDetailsWriter writer;
     private final EntraSecurityObservations observations;
 
@@ -46,6 +57,10 @@ public final class ProblemDetailsAuthenticationEntryPoint implements Authenticat
             observations.jwtAuthentication(false, JwtAuthenticationOutcomes.MISSING);
         }
         bearer.commence(request, response, authException);
+        String header = response.getHeader("WWW-Authenticate");
+        if (header != null && header.contains("resource_metadata=")) {
+            response.setHeader("WWW-Authenticate", withoutResourceMetadata(header));
+        }
         String detail = "A valid bearer token is required to access this resource";
         String code = "unauthorized";
         if (authException instanceof OAuth2AuthenticationException oauth) {
@@ -56,5 +71,15 @@ public final class ProblemDetailsAuthenticationEntryPoint implements Authenticat
             }
         }
         writer.write(request, response, HttpStatus.UNAUTHORIZED, detail, code);
+    }
+
+    /**
+     * Drops {@code resource_metadata}. Spring Security 7 always adds it, including when the resolver returns
+     * {@code null} ({@code resource_metadata="null"}).
+     */
+    static String withoutResourceMetadata(String header) {
+        String stripped = header.replaceAll("\\s*resource_metadata=\"[^\"]*\"\\s*,?", "");
+        stripped = stripped.replaceAll(",\\s*$", "").replaceAll("\\s{2,}", " ").trim();
+        return stripped.isEmpty() ? "Bearer" : stripped;
     }
 }

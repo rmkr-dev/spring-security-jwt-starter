@@ -19,8 +19,8 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Posts a token request form to the Entra v2 token endpoint and turns the answer into a token or an
@@ -76,7 +76,7 @@ final class TokenEndpointClient {
                     + " did not contain an access_token", null, null);
         }
         long expiresIn = body.path("expires_in").asLong(300);
-        return new IssuedToken(new AccessToken(body.get("access_token").asText(), requestedAt.plusSeconds(expiresIn)),
+        return new IssuedToken(new AccessToken(body.get("access_token").asString(), requestedAt.plusSeconds(expiresIn)),
                 Duration.ofSeconds(expiresIn));
     }
 
@@ -118,10 +118,10 @@ final class TokenEndpointClient {
         try (InputStream in = bodyStream) {
             JsonNode node = JSON.readTree(in);
             if (node != null) {
-                error = node.path("error").asText(null);
-                description = node.path("error_description").asText(null);
-                suberror = node.path("suberror").asText(null);
-                claims = node.path("claims").asText(null);
+                error = node.path("error").asString(null);
+                description = node.path("error_description").asString(null);
+                suberror = node.path("suberror").asString(null);
+                claims = node.path("claims").asString(null);
                 node.path("error_codes").forEach(code -> {
                     if (code.canConvertToInt()) {
                         codes.add(code.asInt());

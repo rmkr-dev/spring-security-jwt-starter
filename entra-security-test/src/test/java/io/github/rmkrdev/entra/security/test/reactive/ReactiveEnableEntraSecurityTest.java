@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import jakarta.annotation.security.RolesAllowed;
+
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -24,8 +26,8 @@ import io.github.rmkrdev.entra.security.test.EntraTestTokens;
 import reactor.core.publisher.Mono;
 
 /**
- * {@code @EnableEntraSecurity} on a WebFlux application turns on reactive method security ({@code @Secured}
- * and {@code @PreAuthorize}) even when the property disables it, and preloads the signing keys.
+ * {@code @EnableEntraSecurity} on a WebFlux application turns on reactive method security ({@code @Secured},
+ * {@code @RolesAllowed} and {@code @PreAuthorize}) even when the property disables it, and preloads the signing keys.
  */
 @SpringBootTest(classes = ReactiveEnableEntraSecurityTest.EnableApplication.class, properties = {
         "spring.main.web-application-type=reactive", "entra.security.method-security.enabled=false" })
@@ -55,6 +57,7 @@ class ReactiveEnableEntraSecurityTest {
     @Test
     void enablesReactiveNotServletMethodSecurity() {
         assertThat(context.containsBean("entraReactiveSecuredAuthorizationMethodInterceptor")).isTrue();
+        assertThat(context.containsBean("entraReactiveJsr250AuthorizationMethodInterceptor")).isTrue();
         assertThat(context.containsBean("org.springframework.security.config.annotation.method.configuration."
                 + "PrePostMethodSecurityConfiguration")).isFalse();
     }
@@ -64,6 +67,10 @@ class ReactiveEnableEntraSecurityTest {
         client.get().uri("/secured").headers(bearer(tokens.user().groups(READERS))).exchange()
                 .expectStatus().isOk();
         client.get().uri("/secured").headers(bearer(tokens.user())).exchange()
+                .expectStatus().isForbidden();
+        client.get().uri("/roles-allowed").headers(bearer(tokens.user().groups(READERS))).exchange()
+                .expectStatus().isOk();
+        client.get().uri("/roles-allowed").headers(bearer(tokens.user())).exchange()
                 .expectStatus().isForbidden();
         client.get().uri("/pre-authorized").headers(bearer(tokens.user().groups(READERS))).exchange()
                 .expectStatus().isOk();
@@ -85,6 +92,12 @@ class ReactiveEnableEntraSecurityTest {
         @GetMapping("/secured")
         @Secured("ROLE_ORDERS_READ")
         Mono<String> secured() {
+            return Mono.just("ok");
+        }
+
+        @GetMapping("/roles-allowed")
+        @RolesAllowed("ORDERS_READ")
+        Mono<String> rolesAllowed() {
             return Mono.just("ok");
         }
 

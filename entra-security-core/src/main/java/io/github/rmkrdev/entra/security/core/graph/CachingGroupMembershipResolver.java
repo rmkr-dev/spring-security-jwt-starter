@@ -20,8 +20,17 @@ public final class CachingGroupMembershipResolver implements GroupMembershipReso
 
     public CachingGroupMembershipResolver(GroupMembershipResolver delegate, Duration ttl, int maxEntries,
             Clock clock) {
+        this(delegate, ttl, maxEntries, clock, false);
+    }
+
+    /**
+     * @param bounded when {@code true}, membership lookups for one user share a single Graph call and the cache
+     *                stays within {@code maxEntries}
+     */
+    public CachingGroupMembershipResolver(GroupMembershipResolver delegate, Duration ttl, int maxEntries,
+            Clock clock, boolean bounded) {
         this.delegate = delegate;
-        this.cache = new TtlCache<>(ttl, maxEntries, clock);
+        this.cache = new TtlCache<>(ttl, maxEntries, clock, bounded);
     }
 
     @Override

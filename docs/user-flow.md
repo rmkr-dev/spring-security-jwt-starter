@@ -28,6 +28,12 @@ sequenceDiagram
 A token is a **user** token when `idtyp=user`, or when `idtyp` is absent and `scp` is present. Everything else is
 handled as a [service](service-to-service.md) token.
 
+`entra.security.validation.reject-id-tokens` is off by default. Turn it on to require `idtyp`, `scp` or `roles`
+before classification, so an ID token aimed at this client id is a 401 (`not_access_token`) instead of a caller.
+`entra.security.multi-tenant.enabled` is also off by default: `tid` must equal `tenant-id`. Turn that flag on
+only when this API should accept a list of directory GUIDs (`multi-tenant.tenant-ids`). A single-tenant API
+leaves it off.
+
 ## Where roles come from
 
 | Source | Mapping | Result |

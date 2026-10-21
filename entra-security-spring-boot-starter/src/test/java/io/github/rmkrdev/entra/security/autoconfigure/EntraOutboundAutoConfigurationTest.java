@@ -297,9 +297,9 @@ class EntraOutboundAutoConfigurationTest {
                     assertThat(context).hasBean("entraOutboundRoutingWebClientCustomizer");
                     assertThat(context.getBean(EntraOutboundClients.class).hasRoutes()).isFalse();
                     RestClient.Builder builder = RestClient.builder();
-                    context.getBean(org.springframework.boot.web.client.RestClientCustomizer.class).customize(builder);
+                    context.getBean(org.springframework.boot.restclient.RestClientCustomizer.class).customize(builder);
                     WebClient.Builder web = WebClient.builder();
-                    context.getBean(org.springframework.boot.web.reactive.function.client.WebClientCustomizer.class)
+                    context.getBean(org.springframework.boot.webclient.WebClientCustomizer.class)
                             .customize(web);
                     web.filters(filters -> assertThat(filters).isEmpty());
                 });
@@ -319,11 +319,11 @@ class EntraOutboundAutoConfigurationTest {
                 "entra.security.outbound.routes[0].client=orders")
                 .run(context -> {
                     RestClient.Builder builder = RestClient.builder();
-                    context.getBean(org.springframework.boot.web.client.RestClientCustomizer.class).customize(builder);
+                    context.getBean(org.springframework.boot.restclient.RestClientCustomizer.class).customize(builder);
                     assertThat(builder.build().get().uri(wireMock.baseUrl() + "/peer").retrieve().body(String.class))
                             .isEqualTo("pong");
                     WebClient.Builder web = WebClient.builder();
-                    context.getBean(org.springframework.boot.web.reactive.function.client.WebClientCustomizer.class)
+                    context.getBean(org.springframework.boot.webclient.WebClientCustomizer.class)
                             .customize(web);
                     web.filters(filters -> assertThat(filters).hasSize(1));
                 });

@@ -43,7 +43,8 @@ public final class AllowRolePatternsPostProcessor implements BeanPostProcessor, 
     private static final Logger log = LoggerFactory.getLogger(AllowRolePatternsPostProcessor.class);
     private static final Set<String> INTERCEPTORS = Set.of("preAuthorizeAuthorizationMethodInterceptor",
             "postAuthorizeAuthorizationMethodInterceptor", "securedAuthorizationMethodInterceptor",
-            "jsr250AuthorizationMethodInterceptor", "entraReactiveSecuredAuthorizationMethodInterceptor");
+            "jsr250AuthorizationMethodInterceptor", "entraReactiveSecuredAuthorizationMethodInterceptor",
+            "entraReactiveJsr250AuthorizationMethodInterceptor");
     private static final boolean REACTOR = ClassUtils.isPresent("reactor.core.publisher.Mono",
             AllowRolePatternsPostProcessor.class.getClassLoader());
 

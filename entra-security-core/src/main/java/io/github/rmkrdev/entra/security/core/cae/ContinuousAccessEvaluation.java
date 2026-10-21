@@ -9,10 +9,10 @@ import java.util.regex.Pattern;
 
 import org.springframework.security.oauth2.jwt.Jwt;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The small part of Continuous Access Evaluation this library supports: declaring the {@code cp1} client
@@ -56,7 +56,7 @@ public final class ContinuousAccessEvaluation {
             ArrayNode values = xmsCc.get("values") instanceof ArrayNode node ? node : xmsCc.putArray("values");
             boolean present = false;
             for (JsonNode value : values) {
-                present |= CP1.equals(value.asText());
+                present |= CP1.equals(value.asString());
             }
             if (!present) {
                 values.add(CP1);

@@ -2,8 +2,8 @@ package io.github.rmkrdev.entra.security.autoconfigure.health;
 
 import java.net.URI;
 
-import org.springframework.boot.actuate.health.AbstractHealthIndicator;
-import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.health.contributor.AbstractHealthIndicator;
+import org.springframework.boot.health.contributor.Health;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -30,15 +30,24 @@ public class EntraGraphHealthIndicator extends AbstractHealthIndicator {
         this.tokenProvider = tokenProvider;
         this.restClient = restClient;
         this.scope = scope;
+        this.probeUri = probeUri(graphBaseUrl);
+    }
+
+    static URI probeUri(URI graphBaseUrl) {
         String base = graphBaseUrl.toString();
         if (base.endsWith("/")) {
             base = base.substring(0, base.length() - 1);
         }
-        this.probeUri = URI.create(base + "/v1.0/");
+        return URI.create(base + "/v1.0/");
     }
 
     @Override
     protected void doHealthCheck(Health.Builder builder) {
+        contribute(tokenProvider, restClient, probeUri, scope, builder);
+    }
+
+    static void contribute(EntraTokenProvider tokenProvider, RestClient restClient, URI probeUri, String scope,
+            Health.Builder builder) {
         String token;
         try {
             token = tokenProvider.getToken(scope).value();

@@ -41,6 +41,38 @@ class EntraJwtValidatorsTest {
     }
 
     @Test
+    void rejectIdTokensFlagRequiresAnAccessTokenClaim() {
+        OAuth2TokenValidator<Jwt> strict = EntraJwtDecoders.validator(
+                List.of("https://login.microsoftonline.com/" + TID + "/v2.0"), List.of("client"), TID, List.of(),
+                true, Duration.ofSeconds(30));
+        Jwt idToken = jwt("https://login.microsoftonline.com/" + TID + "/v2.0", "client", TID, 60);
+        assertThat(strict.validate(idToken).getErrors())
+                .anyMatch(error -> error.getDescription().contains("not an Entra access token"));
+        Jwt base = jwt("https://login.microsoftonline.com/" + TID + "/v2.0", "client", TID, 60);
+        Jwt accessToken = Jwt.withTokenValue(base.getTokenValue()).headers(h -> h.putAll(base.getHeaders()))
+                .claims(c -> {
+                    c.putAll(base.getClaims());
+                    c.put("scp", "access_as_user");
+                }).issuedAt(base.getIssuedAt()).expiresAt(base.getExpiresAt()).build();
+        assertThat(strict.validate(accessToken).hasErrors()).isFalse();
+        assertThat(validator.validate(idToken).hasErrors()).isFalse();
+    }
+
+    @Test
+    void tenantAllowListReplacesTheSingleTenantCheck() {
+        String other = "22222222-2222-2222-2222-222222222222";
+        OAuth2TokenValidator<Jwt> allowList = EntraJwtDecoders.validator(
+                List.of("https://login.microsoftonline.com/" + TID + "/v2.0",
+                        "https://login.microsoftonline.com/" + other + "/v2.0"),
+                List.of("client"), null, List.of(TID, other), false, Duration.ofSeconds(30));
+        assertThat(allowList.validate(jwt("https://login.microsoftonline.com/" + other + "/v2.0", "client", other, 60))
+                .hasErrors()).isFalse();
+        assertThat(allowList.validate(jwt("https://login.microsoftonline.com/" + TID + "/v2.0", "client",
+                "99999999-9999-9999-9999-999999999999", 60)).getErrors())
+                .anyMatch(error -> error.getDescription().contains("tid"));
+    }
+
+    @Test
     void clockSkewTolerated() {
         assertThat(validator.validate(jwt("https://sts.windows.net/" + TID + "/", "client", TID, -10))
                 .hasErrors()).isFalse();

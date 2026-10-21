@@ -1,7 +1,5 @@
 package io.github.rmkrdev.entra.security.autoconfigure.keyvault;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import java.util.function.Supplier;
 
@@ -17,8 +15,9 @@ import com.azure.core.util.Context;
 import com.azure.security.keyvault.certificates.CertificateClient;
 import com.azure.security.keyvault.certificates.CertificateClientBuilder;
 import com.azure.security.keyvault.certificates.models.KeyVaultCertificate;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import io.github.rmkrdev.entra.security.autoconfigure.EntraSecurityProperties.KeyVault;
 import io.github.rmkrdev.entra.security.core.token.ClientCertificateCredential;
@@ -90,11 +89,11 @@ final class CertificateClientCertificateLoader implements Supplier<ClientCertifi
                         + hint);
             }
             JsonNode body = JSON.readTree(response.getBodyAsBinaryData().toBytes());
-            return KeyVaultCertificates.fromSecret(body.path("value").asText(null),
-                    body.path("contentType").asText(null), source);
+            return KeyVaultCertificates.fromSecret(body.path("value").asString(null),
+                    body.path("contentType").asString(null), source);
         }
-        catch (IOException ex) {
-            throw new UncheckedIOException("Unable to read the secret of " + source, ex);
+        catch (JacksonException ex) {
+            throw new IllegalStateException("Unable to read the secret of " + source, ex);
         }
     }
 }

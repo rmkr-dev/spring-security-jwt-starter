@@ -19,8 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import io.github.rmkrdev.entra.security.core.jwt.EntraJwtDecoders;
 
@@ -66,7 +66,7 @@ class EntraMockAuthorityOnBehalfOfTest {
         assertThat(response.statusCode()).isEqualTo(200);
         JsonNode body = json.readTree(response.body());
         assertThat(body.path("expires_in").asLong()).isEqualTo(3600);
-        Jwt downstream = downstreamDecoder.decode(body.path("access_token").asText());
+        Jwt downstream = downstreamDecoder.decode(body.path("access_token").asString());
         assertThat(downstream.getAudience()).containsExactly("api://downstream");
         assertThat(downstream.getClaimAsString("oid")).isEqualTo(USER);
         assertThat(downstream.getClaimAsString("azp")).isEqualTo(CLIENT);
@@ -90,7 +90,7 @@ class EntraMockAuthorityOnBehalfOfTest {
 
         JsonNode body = json.readTree(response.body());
         assertThat(body.path("expires_in").asLong()).isEqualTo(120);
-        assertThat(downstreamDecoder.decode(body.path("access_token").asText()).getClaimAsString("scp"))
+        assertThat(downstreamDecoder.decode(body.path("access_token").asString()).getClaimAsString("scp"))
                 .isEqualTo("user_impersonation");
     }
 
@@ -122,8 +122,8 @@ class EntraMockAuthorityOnBehalfOfTest {
 
         JsonNode error = assertError(obo(tokens.user().build(), "api://downstream/Data.Read"), 400, "invalid_grant",
                 65001);
-        assertThat(error.path("suberror").asText()).isEqualTo("consent_required");
-        assertThat(error.path("error_description").asText()).startsWith("AADSTS65001");
+        assertThat(error.path("suberror").asString()).isEqualTo("consent_required");
+        assertThat(error.path("error_description").asString()).startsWith("AADSTS65001");
 
         authority.reset();
         assertThat(obo(tokens.user().build(), "api://downstream/Data.Read").statusCode()).isEqualTo(200);
@@ -137,13 +137,13 @@ class EntraMockAuthorityOnBehalfOfTest {
         assertThat(obo(tokens.user().build(), "api://downstream/Data.Read").statusCode()).isEqualTo(200);
         JsonNode error = assertError(obo(tokens.user().build(), "api://downstream/Data.Write"), 400,
                 "interaction_required", 50076);
-        assertThat(error.path("claims").asText()).contains("\"acrs\"");
+        assertThat(error.path("claims").asString()).contains("\"acrs\"");
     }
 
     private JsonNode assertError(HttpResponse<String> response, int status, String error, int code) throws Exception {
         assertThat(response.statusCode()).isEqualTo(status);
         JsonNode body = json.readTree(response.body());
-        assertThat(body.path("error").asText()).isEqualTo(error);
+        assertThat(body.path("error").asString()).isEqualTo(error);
         assertThat(body.path("error_codes").get(0).asInt()).isEqualTo(code);
         return body;
     }

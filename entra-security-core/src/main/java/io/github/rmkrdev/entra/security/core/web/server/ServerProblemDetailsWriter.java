@@ -8,8 +8,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.server.ServerWebExchange;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import io.github.rmkrdev.entra.security.core.web.ProblemDetails;
 import reactor.core.publisher.Mono;
@@ -37,7 +37,7 @@ public final class ServerProblemDetailsWriter {
         try {
             bytes = objectMapper.writeValueAsBytes(body);
         }
-        catch (JsonProcessingException ex) {
+        catch (JacksonException ex) {
             return Mono.error(ex);
         }
         response.setStatusCode(status);

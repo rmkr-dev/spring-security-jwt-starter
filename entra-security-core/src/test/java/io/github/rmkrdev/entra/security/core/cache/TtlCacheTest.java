@@ -1,11 +1,19 @@
 package io.github.rmkrdev.entra.security.core.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
@@ -27,6 +35,56 @@ class TtlCacheTest {
         assertThat(cache.size()).isLessThanOrEqualTo(2);
         assertThat(cache.get("n", k -> null)).isNull();
         assertThat(cache.size()).isLessThanOrEqualTo(2);
+    }
+
+    @Test
+    void boundedModeCapsSizeCoalescesLoadsAndRetriesFailures() throws Exception {
+        TtlCache<String, String> cache = new TtlCache<>(Duration.ofMinutes(1), 2, Clock.systemUTC(), true);
+        AtomicInteger loads = new AtomicInteger();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<String>> futures = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                futures.add(pool.submit(() -> cache.get("same", key -> {
+                    loads.incrementAndGet();
+                    started.countDown();
+                    try {
+                        release.await(5, TimeUnit.SECONDS);
+                    }
+                    catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(ex);
+                    }
+                    return "v";
+                })));
+            }
+            assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+            release.countDown();
+            for (Future<String> future : futures) {
+                assertThat(future.get(5, TimeUnit.SECONDS)).isEqualTo("v");
+            }
+        }
+        finally {
+            pool.shutdownNow();
+        }
+        assertThat(loads).hasValue(1);
+        cache.put("a", "a");
+        cache.put("b", "b");
+        cache.put("c", "c");
+        assertThat(cache.size()).isLessThanOrEqualTo(2);
+
+        AtomicInteger attempts = new AtomicInteger();
+        assertThatThrownBy(() -> cache.get("bad", key -> {
+            attempts.incrementAndGet();
+            throw new IllegalStateException("boom");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(cache.get("bad", key -> {
+            attempts.incrementAndGet();
+            return "ok";
+        })).isEqualTo("ok");
+        assertThat(attempts).hasValue(2);
     }
 
     @Test
