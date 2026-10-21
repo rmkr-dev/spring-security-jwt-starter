@@ -23,6 +23,8 @@ import jakarta.servlet.DispatcherType;
 /**
  * Applies the Entra defaults to an {@link HttpSecurity}: stateless, CSRF off, public paths open,
  * everything else authenticated with an Entra bearer token, and JSON problem details for 401/403.
+ * CSRF stays off because a browser does not attach {@code Authorization} on a cross-site request and
+ * this chain has no session cookie.
  * <p>
  * The starter uses it for its default filter chain. Services that define their own
  * {@code SecurityFilterChain} can reuse it:
@@ -72,6 +74,7 @@ public class EntraHttpSecurity {
             http.addFilterBefore(timing.startFilter(), BearerTokenAuthenticationFilter.class)
                     .addFilterAfter(timing.endFilter(), AuthorizationFilter.class);
         }
+        // codeql[java/spring-disabled-csrf-protection] Stateless bearer-token chain; no session cookie.
         http.csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> {
                 })

@@ -44,7 +44,8 @@ flowchart LR
 
 ## Security defaults
 
-- Stateless sessions, CSRF off, and no form login, HTTP Basic, logout or request cache.
+- Stateless sessions, and no form login, HTTP Basic, logout or request cache. CSRF stays off: authentication
+  is a bearer token, and a browser does not attach `Authorization` on a cross-site request.
 - CORS follows your `CorsConfigurationSource` bean (or Spring MVC CORS config). Nothing is allowed cross-origin by default.
 - RS256 signatures only, with keys from the tenant JWKS. `none`, HS* and unknown keys are rejected.
 - The issuer must match exactly (v1 and v2). Audience and tenant (`tid`) are checked, `exp` is required, and `exp`/`nbf` allow a configurable clock skew.
