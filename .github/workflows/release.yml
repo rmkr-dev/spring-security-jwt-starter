@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to build, for example v0.8.0
+        description: Existing tag to build, for example v1.0.0
         required: true
       publish:
         description: Publish to GitHub Packages and attach files to the release
