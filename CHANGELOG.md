@@ -6,11 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Security
+## [1.0.0] - 2026-10-22
 
-- The default servlet and WebFlux chains keep CSRF disabled. Code scanning accepts that because
-  authentication is a bearer token on a stateless chain, with no session cookie for a browser to
-  attach on a cross-site request.
+First stable release, on Spring Boot 4.1. Spring Boot 3.x services stay on 0.7.x; see
+[docs/upgrading.md](docs/upgrading.md).
 
 ### Added
 
@@ -20,24 +19,6 @@ All notable changes to this project are documented here. The format follows
   and the hygiene checks pass. Dependency review compares CycloneDX SBOMs and queries OSV.
   `mvn verify` now fails on compiler warnings and enforces dependency convergence, upper-bound
   dependencies, and unique dependency declarations.
-
-### Changed
-
-- Spring Boot 4.1.1 is the build line (Spring Framework 7.0, Spring Security 7.1, Jackson 3.1). Java 17, 21
-  and 25 are tested. Spring Boot 3.x stays on the 0.7.x line. Spring Boot 4.0 is not supported: 4.1 moved the
-  OAuth2 resource-server auto-configuration packages again.
-- The library version is 1.0.0.
-- `application/problem+json` is written with the application's Jackson 3 `JsonMapper`.
-- WebFlux method security implements Spring Security 7 `ReactiveAuthorizationManager.authorize`, and
-  `@RolesAllowed` is enforced on methods that return `Mono` or `Flux`.
-- Actuator health uses `spring-boot-health`. WebFlux applications get reactive `entraJwks` and `entraGraph`
-  indicators. Metrics customizers use `spring-boot-micrometer-metrics`.
-- Samples and docs use `spring-boot-starter-webmvc`, `spring-boot-starter-restclient` and
-  `spring-boot-starter-webclient`. `@WithMockEntraUser` needs `spring-boot-starter-security-test`.
-- `WWW-Authenticate` does not include Spring Security 7's `resource_metadata` parameter.
-
-### Added
-
 - Spring Boot version check (`EntraSpringBootVersionCheck`), registered as an `ApplicationContextInitializer` so it
   runs before any auto-configuration. On Spring Boot 3.x or 4.0 startup stops with one message that names the
   running version and points to 0.7.x, instead of a `ClassNotFoundException` from the auto-configuration. A newer,
@@ -62,10 +43,30 @@ All notable changes to this project are documented here. The format follows
   problems surface before a tag.
 - `docs/releasing.md`: installing from GitHub Packages and cutting a release, with a diagram.
 
+### Changed
+
+- Spring Boot 4.1.1 is the build line (Spring Framework 7.0, Spring Security 7.1, Jackson 3.1). Java 17, 21
+  and 25 are tested. Spring Boot 3.x stays on the 0.7.x line. Spring Boot 4.0 is not supported: 4.1 moved the
+  OAuth2 resource-server auto-configuration packages again.
+- `application/problem+json` is written with the application's Jackson 3 `JsonMapper`.
+- WebFlux method security implements Spring Security 7 `ReactiveAuthorizationManager.authorize`, and
+  `@RolesAllowed` is enforced on methods that return `Mono` or `Flux`.
+- Actuator health uses `spring-boot-health`. WebFlux applications get reactive `entraJwks` and `entraGraph`
+  indicators. Metrics customizers use `spring-boot-micrometer-metrics`.
+- Samples and docs use `spring-boot-starter-webmvc`, `spring-boot-starter-restclient` and
+  `spring-boot-starter-webclient`. `@WithMockEntraUser` needs `spring-boot-starter-security-test`.
+- `WWW-Authenticate` does not include Spring Security 7's `resource_metadata` parameter.
+
 ### Removed
 
 - The Spring Boot 3.3 and 3.4 CI compatibility jobs. `docs/compatibility.md` lists Boot 4.1.1 on Java 17, 21
   and 25.
+
+### Security
+
+- The default servlet and WebFlux chains keep CSRF disabled. Code scanning accepts that because
+  authentication is a bearer token on a stateless chain, with no session cookie for a browser to
+  attach on a cross-site request.
 
 ## [0.7.0] - 2026-10-19
 
@@ -362,7 +363,8 @@ All notable changes to this project are documented here. The format follows
 - Tests against locally generated RSA keys and WireMock (JWKS, token endpoint, Graph); GitHub Actions on
   Java 17 and 21.
 
-[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.7.0...v1.0.0
 [0.7.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/rmkr-dev/spring-security-jwt-starter/compare/v0.4.0...v0.5.0
